@@ -14,10 +14,13 @@
 //!   - MCP-8 ✅：全量 tools/resources/prompts
 //!   - MCP-9/10 🟨：Claude Code 联调 / 验收
 
+mod idempotency;
 mod prompts;
 mod resources;
 mod tools;
 pub mod transport_http;
+
+pub use idempotency::IdempotencyCache;
 
 use prompts::{analyze_character_card_prompt, analyze_preset_prompt, filter_text_prompt, state_update_prompt};
 pub use tools::{
@@ -63,6 +66,8 @@ pub struct AirpMcpServer {
     tool_router: ToolRouter<Self>,
     /// MCP-7: 资源订阅注册表，与 DaemonState + FinalizerCtx 共享同一 Arc。
     pub state_subs: StateSubs,
+    /// AUDIT-12: idempotency cache shared across all tool handlers.
+    pub idempotency: Arc<IdempotencyCache>,
 }
 
 impl AirpMcpServer {
@@ -77,6 +82,7 @@ impl AirpMcpServer {
             data_root,
             tool_router: Self::tool_router(),
             state_subs,
+            idempotency: IdempotencyCache::shared(),
         }
     }
 

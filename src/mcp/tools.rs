@@ -61,7 +61,7 @@ pub struct GetRecentContextRequest {
     pub session_id: Option<String>,
 }
 
-#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
 pub struct AppendMessageRequest {
     /// 角色 ID。
     pub character_id: String,
@@ -72,9 +72,13 @@ pub struct AppendMessageRequest {
     /// 可选 session UUID；预留字段，当前不影响行为。
     #[serde(default)]
     pub session_id: Option<String>,
+    /// AUDIT-12: 幂等键。同一 key 重复调用会返回缓存的首次结果，
+    /// 不再追加消息。用于 harness retry 防重。
+    #[serde(default)]
+    pub idempotency_key: Option<String>,
 }
 
-#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
 pub struct UpdateStateRequest {
     /// 角色 ID。
     pub character_id: String,
@@ -84,6 +88,10 @@ pub struct UpdateStateRequest {
     /// true = 覆盖全部状态；false（默认）= 合并到现有状态。
     #[serde(default)]
     pub overwrite: bool,
+    /// AUDIT-12: 幂等键。同一 key 重复调用返回缓存结果，避免重复写盘 + 重复
+    /// 追加 history.jsonl 快照。
+    #[serde(default)]
+    pub idempotency_key: Option<String>,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -641,6 +649,15 @@ impl AirpMcpServer {
     ) -> Result<String, ErrorData> {
         use crate::adapter::{ChatMessage, MessageRole};
 
+        // AUDIT-12: idempotency short-circuit. If client supplies a key and
+        // we've seen it within the TTL window, return the cached result and
+        // skip the write entirely.
+        if let Some(ref key) = req.idempotency_key {
+            if let Some(cached) = self.idempotency.get("append_message", key) {
+                return Ok(cached);
+            }
+        }
+
         crate::data_dir::validate_id_segment(&req.character_id)
             .map_err(|e| ErrorData::invalid_params(format!("非法 character_id: {}", e), None))?;
 
@@ -710,13 +727,20 @@ impl AirpMcpServer {
             }));
         }
 
-        Ok(serde_json::json!({
+        let response = serde_json::json!({
             "character_id": req.character_id,
             "role": req.role,
             "total_messages": log.messages.len(),
             "hints": hints,
         })
-        .to_string())
+        .to_string();
+
+        // AUDIT-12: store the successful response for future retries.
+        if let Some(ref key) = req.idempotency_key {
+            self.idempotency.store("append_message", key, response.clone());
+        }
+
+        Ok(response)
     }
 
     /// DS-8 实现：直接更新角色实时状态（state/live.json）。
@@ -725,6 +749,13 @@ impl AirpMcpServer {
         &self,
         Parameters(req): Parameters<UpdateStateRequest>,
     ) -> Result<String, ErrorData> {
+        // AUDIT-12: short-circuit on idempotency key cache hit
+        if let Some(ref key) = req.idempotency_key {
+            if let Some(cached) = self.idempotency.get("update_state", key) {
+                return Ok(cached);
+            }
+        }
+
         crate::data_dir::validate_id_segment(&req.character_id)
             .map_err(|e| ErrorData::invalid_params(format!("非法 character_id: {}", e), None))?;
 
@@ -793,13 +824,20 @@ impl AirpMcpServer {
             format!("airp://characters/{}/state/live", req.character_id),
         );
 
-        Ok(serde_json::json!({
+        let response = serde_json::json!({
             "character_id": req.character_id,
             "overwrite": req.overwrite,
             "fields_updated": delta.as_object().map(|m| m.len()).unwrap_or(0),
             "state": merged,
         })
-        .to_string())
+        .to_string();
+
+        // AUDIT-12: cache result for retry safety.
+        if let Some(ref key) = req.idempotency_key {
+            self.idempotency.store("update_state", key, response.clone());
+        }
+
+        Ok(response)
     }
 
     /// DS-B 实现：Agent 分析角色卡后写入产物文件。

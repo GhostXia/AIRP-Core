@@ -1,4 +1,4 @@
-use super::*;
+﻿use super::*;
 use rmcp::model::ResourceContents;
 use std::fs;
 use std::path::PathBuf;
@@ -810,6 +810,7 @@ fn test_ds67_append_then_get_context() {
             role: "user".to_string(),
             content: "Hello!".to_string(),
             session_id: None,
+            idempotency_key: None,
         }))
         .unwrap();
     let v1: serde_json::Value = serde_json::from_str(&r1).unwrap();
@@ -822,6 +823,7 @@ fn test_ds67_append_then_get_context() {
             role: "assistant".to_string(),
             content: "Hi there!".to_string(),
             session_id: None,
+            idempotency_key: None,
         }))
         .unwrap();
     let v2: serde_json::Value = serde_json::from_str(&r2).unwrap();
@@ -875,6 +877,7 @@ fn test_ds67_append_invalid_role() {
             role: "bot".to_string(),
             content: "hi".to_string(),
             session_id: None,
+            idempotency_key: None,
         }))
         .unwrap_err();
     assert!(err.message.contains("未知 role 'bot'"));
@@ -893,6 +896,7 @@ fn test_ds67_get_context_n_limit() {
             role: "user".to_string(),
             content: format!("msg {}", i),
             session_id: None,
+            idempotency_key: None,
         }))
         .unwrap();
     }
@@ -928,6 +932,7 @@ fn test_ds8_update_state_merge() {
             character_id: "hero".to_string(),
             state_json: r#"{"hp":100,"mp":50}"#.to_string(),
             overwrite: false,
+            idempotency_key: None,
         }))
         .unwrap();
     let v1: serde_json::Value = serde_json::from_str(&r1).unwrap();
@@ -940,6 +945,7 @@ fn test_ds8_update_state_merge() {
             character_id: "hero".to_string(),
             state_json: r#"{"hp":80,"location":"tavern"}"#.to_string(),
             overwrite: false,
+            idempotency_key: None,
         }))
         .unwrap();
     let v2: serde_json::Value = serde_json::from_str(&r2).unwrap();
@@ -962,6 +968,7 @@ fn test_ds8_update_state_overwrite() {
         character_id: "hero2".to_string(),
         state_json: r#"{"hp":100,"mp":50}"#.to_string(),
         overwrite: false,
+            idempotency_key: None,
     }))
     .unwrap();
 
@@ -970,6 +977,7 @@ fn test_ds8_update_state_overwrite() {
             character_id: "hero2".to_string(),
             state_json: r#"{"hp":30}"#.to_string(),
             overwrite: true,
+            idempotency_key: None,
         }))
         .unwrap();
     let v: serde_json::Value = serde_json::from_str(&r).unwrap();
@@ -988,6 +996,7 @@ fn test_ds8_update_state_invalid_json() {
             character_id: "hero3".to_string(),
             state_json: "not json".to_string(),
             overwrite: false,
+            idempotency_key: None,
         }))
         .unwrap_err();
     assert!(err.message.contains("非合法 JSON"));
@@ -1004,6 +1013,7 @@ fn test_ds8_update_state_not_object() {
             character_id: "hero4".to_string(),
             state_json: "[1,2,3]".to_string(),
             overwrite: false,
+            idempotency_key: None,
         }))
         .unwrap_err();
     assert!(err.message.contains("JSON 对象"));
@@ -1024,6 +1034,7 @@ fn test_ds9_rollback_one_message() {
             role: role.to_string(),
             content: content.to_string(),
             session_id: None,
+            idempotency_key: None,
         }))
         .unwrap();
     }
@@ -1063,6 +1074,7 @@ fn test_ds9_rollback_multiple_messages() {
             role: "user".to_string(),
             content: format!("m{}", i),
             session_id: None,
+            idempotency_key: None,
         }))
         .unwrap();
     }
@@ -1090,6 +1102,7 @@ fn test_ds9_rollback_n_exceeds_total_clears_all() {
             role: "user".to_string(),
             content: format!("m{}", i),
             session_id: None,
+            idempotency_key: None,
         }))
         .unwrap();
     }
@@ -1228,6 +1241,7 @@ fn test_ds11_get_state_history_reads_newest_first() {
             character_id: "sh_hero".to_string(),
             state_json: format!(r#"{{"hp":{}, "mp":{}}}"#, hp, mp),
             overwrite: false,
+            idempotency_key: None,
         }))
         .unwrap();
     }
@@ -1260,6 +1274,7 @@ fn test_ds11_get_state_history_n_limit() {
             character_id: "sh_lim".to_string(),
             state_json: format!(r#"{{"turn":{}}}"#, i),
             overwrite: false,
+            idempotency_key: None,
         }))
         .unwrap();
     }
@@ -1291,6 +1306,136 @@ fn test_ds11_get_state_history_invalid_id_rejected() {
     assert!(err.message.contains("非法 character_id"));
 }
 
+// ── AUDIT-12: idempotency keys ─────────────────────────────────────────────
+
+#[test]
+fn test_audit_12_append_message_idempotency_dedups_retry() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    std::fs::create_dir_all(tmp.path().join("characters").join("npc_idem")).unwrap();
+
+    // First call with idempotency_key
+    let resp1 = s
+        .append_message_impl(Parameters(AppendMessageRequest {
+            character_id: "npc_idem".to_string(),
+            role: "user".to_string(),
+            content: "hello".to_string(),
+            session_id: None,
+            idempotency_key: Some("retry-key-1".to_string()),
+        }))
+        .unwrap();
+
+    // Second call with the same key — should return identical result without
+    // adding another message
+    let resp2 = s
+        .append_message_impl(Parameters(AppendMessageRequest {
+            character_id: "npc_idem".to_string(),
+            role: "user".to_string(),
+            // Different content — should be ignored on cache hit
+            content: "DIFFERENT CONTENT".to_string(),
+            session_id: None,
+            idempotency_key: Some("retry-key-1".to_string()),
+        }))
+        .unwrap();
+
+    assert_eq!(resp1, resp2, "same idempotency key must return cached result");
+
+    // Verify only one message was actually written
+    let v: serde_json::Value = serde_json::from_str(&resp2).unwrap();
+    assert_eq!(v["total_messages"], 1, "second call must not append");
+}
+
+#[test]
+fn test_audit_12_append_message_different_keys_proceed() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    std::fs::create_dir_all(tmp.path().join("characters").join("npc_keys")).unwrap();
+
+    let r1 = s
+        .append_message_impl(Parameters(AppendMessageRequest {
+            character_id: "npc_keys".to_string(),
+            role: "user".to_string(),
+            content: "first".to_string(),
+            session_id: None,
+            idempotency_key: Some("key-A".to_string()),
+        }))
+        .unwrap();
+    let r2 = s
+        .append_message_impl(Parameters(AppendMessageRequest {
+            character_id: "npc_keys".to_string(),
+            role: "user".to_string(),
+            content: "second".to_string(),
+            session_id: None,
+            idempotency_key: Some("key-B".to_string()),
+        }))
+        .unwrap();
+    let v2: serde_json::Value = serde_json::from_str(&r2).unwrap();
+    assert_eq!(v2["total_messages"], 2, "different keys should write both");
+    assert_ne!(r1, r2);
+}
+
+#[test]
+fn test_audit_12_append_message_no_key_no_caching() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    std::fs::create_dir_all(tmp.path().join("characters").join("npc_nokey")).unwrap();
+
+    // Two calls without idempotency_key should always append (back-compat).
+    s.append_message_impl(Parameters(AppendMessageRequest {
+        character_id: "npc_nokey".to_string(),
+        role: "user".to_string(),
+        content: "a".to_string(),
+        session_id: None,
+        idempotency_key: None,
+    }))
+    .unwrap();
+    let r2 = s
+        .append_message_impl(Parameters(AppendMessageRequest {
+            character_id: "npc_nokey".to_string(),
+            role: "user".to_string(),
+            content: "b".to_string(),
+            session_id: None,
+            idempotency_key: None,
+        }))
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&r2).unwrap();
+    assert_eq!(v["total_messages"], 2, "no key means always append");
+}
+
+#[test]
+fn test_audit_12_update_state_idempotency_dedups() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    std::fs::create_dir_all(tmp.path().join("characters").join("npc_us")).unwrap();
+
+    let r1 = s
+        .update_state_impl(Parameters(UpdateStateRequest {
+            character_id: "npc_us".to_string(),
+            state_json: serde_json::json!({"hp": 50}).to_string(),
+            overwrite: false,
+            idempotency_key: Some("us-key".to_string()),
+        }))
+        .unwrap();
+    // Retry with different state — cache hit should return original
+    let r2 = s
+        .update_state_impl(Parameters(UpdateStateRequest {
+            character_id: "npc_us".to_string(),
+            state_json: serde_json::json!({"hp": 99}).to_string(),
+            overwrite: false,
+            idempotency_key: Some("us-key".to_string()),
+        }))
+        .unwrap();
+    assert_eq!(r1, r2, "cached response must match original");
+
+    // Verify state on disk was the original 50, not the retry 99
+    let live = std::fs::read_to_string(
+        tmp.path().join("characters/npc_us/state/live.json"),
+    )
+    .unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&live).unwrap();
+    assert_eq!(parsed["hp"], 50, "retry with same key must not overwrite state");
+}
+
 // ── AUDIT-6 / AUDIT-7: append_message soft hints ──────────────────────────
 
 #[test]
@@ -1305,6 +1450,7 @@ fn test_audit_6_short_message_no_seal_hint() {
             role: "user".to_string(),
             content: "hello".to_string(),
             session_id: None,
+            idempotency_key: None,
         }))
         .unwrap();
     let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
@@ -1333,6 +1479,7 @@ fn test_audit_6_long_chat_emits_seal_hint() {
             role: "assistant".to_string(),
             content: bulk,
             session_id: None,
+            idempotency_key: None,
         }))
         .unwrap();
     let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
@@ -1367,6 +1514,7 @@ fn test_audit_7_three_volumes_emits_maintenance_hint() {
             role: "user".to_string(),
             content: "x".to_string(),
             session_id: None,
+            idempotency_key: None,
         }))
         .unwrap();
     let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
@@ -1391,6 +1539,7 @@ fn test_audit_7_no_volumes_no_maintenance_hint() {
             role: "user".to_string(),
             content: "x".to_string(),
             session_id: None,
+            idempotency_key: None,
         }))
         .unwrap();
     let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
@@ -1418,6 +1567,7 @@ async fn test_audit_13_update_state_emits_no_panic_with_empty_subs() {
         character_id: "npc1".to_string(),
         state_json: serde_json::json!({"hp": 80}).to_string(),
         overwrite: false,
+            idempotency_key: None,
     }));
     assert!(result.is_ok(), "update_state should succeed without subscribers");
 
