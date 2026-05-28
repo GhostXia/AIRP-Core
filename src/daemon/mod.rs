@@ -479,7 +479,7 @@ mod tests {
     async fn test_ms3_create_and_get_scene() {
         let (state, _tmp) = make_state_no_key();
         let scene = crate::scene::SceneConfig {
-            scene_id: "tavern".to_string(),
+            scene_id: crate::types::SceneId::new("tavern").unwrap(),
             description: "Tea house".to_string(),
             characters: vec![],
             narrator_style: String::new(),
@@ -522,7 +522,7 @@ mod tests {
     async fn test_ms3_add_character_to_scene() {
         let (state, _tmp) = make_state_no_key();
         let scene = crate::scene::SceneConfig {
-            scene_id: "forest".to_string(),
+            scene_id: crate::types::SceneId::new("forest").unwrap(),
             description: "Forest".to_string(),
             characters: vec![],
             narrator_style: String::new(),

@@ -527,9 +527,10 @@ mod tests {
     #[test]
     fn test_ms9_multi_char_prompt_contains_all_character_sections() {
         use crate::scene::{CharacterEntry, CharacterRole, LorebookMerge, SceneConfig};
+        use crate::types::SceneId;
 
         let scene = SceneConfig {
-            scene_id: "tavern".to_string(),
+            scene_id: SceneId::new("tavern").unwrap(),
             description: "茶馆初春".to_string(),
             characters: vec![
                 CharacterEntry { character_id: "alice".to_string(), role: CharacterRole::Primary, intro: "剑客".to_string() },
@@ -560,9 +561,10 @@ mod tests {
     #[test]
     fn test_ms9_multi_char_prompt_no_cards_uses_ids() {
         use crate::scene::{CharacterEntry, CharacterRole, LorebookMerge, SceneConfig};
+        use crate::types::SceneId;
 
         let scene = SceneConfig {
-            scene_id: "void".to_string(),
+            scene_id: SceneId::new("void").unwrap(),
             description: String::new(),
             characters: vec![
                 CharacterEntry { character_id: "char1".to_string(), role: CharacterRole::Npc, intro: String::new() },
@@ -579,9 +581,10 @@ mod tests {
     #[test]
     fn test_ms9_multi_char_prompt_includes_triggered_lore() {
         use crate::scene::{CharacterEntry, CharacterRole, LorebookMerge, SceneConfig};
+        use crate::types::SceneId;
 
         let scene = SceneConfig {
-            scene_id: "test".to_string(),
+            scene_id: SceneId::new("test").unwrap(),
             description: String::new(),
             characters: vec![
                 CharacterEntry { character_id: "x".to_string(), role: CharacterRole::Primary, intro: String::new() },

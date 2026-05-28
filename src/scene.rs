@@ -1,4 +1,5 @@
 use crate::error::AirpError;
+use crate::types::SceneId;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -31,7 +32,9 @@ pub enum LorebookMerge {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SceneConfig {
-    pub scene_id: String,
+    /// AUDIT-2: validated newtype — `validate_id_segment` runs at serde
+    /// deserialize time, so any inbound SceneConfig has a safe scene_id.
+    pub scene_id: SceneId,
     #[serde(default)]
     pub description: String,
     pub characters: Vec<CharacterEntry>,
@@ -48,7 +51,7 @@ impl SceneConfig {
         self.characters.iter().find(|c| c.role == CharacterRole::Primary)
     }
 
-    pub fn load(root: &Path, scene_id: &str) -> Result<Self, AirpError> {
+    pub fn load(root: &Path, scene_id: &SceneId) -> Result<Self, AirpError> {
         let path = crate::data_dir::scene_json_path(root, scene_id);
         let json = std::fs::read_to_string(&path)?;
         Ok(serde_json::from_str(&json)?)
@@ -71,7 +74,7 @@ mod tests {
 
     fn sample_scene() -> SceneConfig {
         SceneConfig {
-            scene_id: "tavern".to_string(),
+            scene_id: SceneId::new("tavern").unwrap(),
             description: "A tavern scene".to_string(),
             characters: vec![
                 CharacterEntry {
@@ -97,8 +100,8 @@ mod tests {
         let sc = sample_scene();
         sc.save(tmp.path()).unwrap();
 
-        let loaded = SceneConfig::load(tmp.path(), "tavern").unwrap();
-        assert_eq!(loaded.scene_id, "tavern");
+        let loaded = SceneConfig::load(tmp.path(), &SceneId::new("tavern").unwrap()).unwrap();
+        assert_eq!(loaded.scene_id.as_str(), "tavern");
         assert_eq!(loaded.characters.len(), 2);
         assert_eq!(loaded.characters[0].role, CharacterRole::Primary);
     }
@@ -113,6 +116,7 @@ mod tests {
     fn test_ms2_scene_defaults() {
         let json = r#"{"scene_id":"s1","characters":[]}"#;
         let sc: SceneConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(sc.scene_id.as_str(), "s1");
         assert_eq!(sc.lorebook_merge, LorebookMerge::Union);
         assert!(sc.description.is_empty());
         assert!(sc.primary().is_none());
@@ -138,14 +142,14 @@ mod tests {
     #[test]
     fn test_audit_4_load_nonexistent_scene_errors() {
         let tmp = tempdir().unwrap();
-        let result = SceneConfig::load(tmp.path(), "no_such_scene");
+        let result = SceneConfig::load(tmp.path(), &SceneId::new("no_such_scene").unwrap());
         assert!(result.is_err(), "loading nonexistent scene should error");
     }
 
     #[test]
     fn test_audit_4_primary_returns_none_when_only_npcs() {
         let sc = SceneConfig {
-            scene_id: "npc_only".to_string(),
+            scene_id: SceneId::new("npc_only").unwrap(),
             description: String::new(),
             characters: vec![
                 CharacterEntry {
@@ -171,7 +175,7 @@ mod tests {
         // Behavior: if multiple Primary characters defined (config error),
         // primary() returns the first one. Documents existing semantics.
         let sc = SceneConfig {
-            scene_id: "multi".to_string(),
+            scene_id: SceneId::new("multi").unwrap(),
             description: String::new(),
             characters: vec![
                 CharacterEntry {
@@ -224,7 +228,7 @@ mod tests {
         let scene_dir = tmp.path().join("scenes").join("broken");
         std::fs::create_dir_all(&scene_dir).unwrap();
         std::fs::write(scene_dir.join("scene.json"), "{not json").unwrap();
-        let result = SceneConfig::load(tmp.path(), "broken");
+        let result = SceneConfig::load(tmp.path(), &SceneId::new("broken").unwrap());
         assert!(result.is_err(), "malformed JSON should error");
     }
 }

@@ -450,6 +450,7 @@ mod tests_ms6 {
     use crate::config::VolumeConfig;
     use crate::daemon::{MutableConfig, UserProfile};
     use crate::scene::{CharacterEntry, CharacterRole, LorebookMerge, SceneConfig};
+    use crate::types::SceneId;
     use std::collections::HashMap;
     use tempfile::tempdir;
 
@@ -504,7 +505,7 @@ mod tests_ms6 {
         crate::data_dir::ensure_data_dirs(&state.data_root).unwrap();
 
         let scene = SceneConfig {
-            scene_id: "forest_scene".to_string(),
+            scene_id: SceneId::new("forest_scene").unwrap(),
             description: "A dark enchanted forest".to_string(),
             characters: vec![
                 CharacterEntry {
@@ -550,7 +551,7 @@ mod tests_ms6 {
         crate::data_dir::ensure_data_dirs(&state.data_root).unwrap();
 
         let scene = SceneConfig {
-            scene_id: "empty_scene".to_string(),
+            scene_id: SceneId::new("empty_scene").unwrap(),
             description: String::new(),
             characters: vec![],
             narrator_style: String::new(),

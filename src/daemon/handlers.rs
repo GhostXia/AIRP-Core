@@ -568,13 +568,17 @@ pub(super) async fn list_scenes_endpoint(
 }
 
 /// GET /v1/scenes/:scene_id — return scene.json for a scene.
+///
+/// AUDIT-2: scene_id is validated once via SceneId::new; downstream path
+/// functions take &SceneId so traversal protection is compile-time enforced.
 pub(super) async fn get_scene_endpoint(
     axum::extract::State(state): axum::extract::State<Arc<DaemonState>>,
     axum::extract::Path(scene_id): axum::extract::Path<String>,
 ) -> Response {
-    if data_dir::validate_id_segment(&scene_id).is_err() {
-        return StatusCode::BAD_REQUEST.into_response();
-    }
+    let scene_id = match crate::types::SceneId::new(scene_id) {
+        Ok(s) => s,
+        Err(_) => return StatusCode::BAD_REQUEST.into_response(),
+    };
     let path = data_dir::scene_json_path(&state.data_root, &scene_id);
     match fs::read_to_string(&path) {
         Ok(json) => ([(header::CONTENT_TYPE, "application/json")], json).into_response(),
@@ -583,13 +587,15 @@ pub(super) async fn get_scene_endpoint(
 }
 
 /// POST /v1/scenes — create or replace a scene from JSON body.
+///
+/// AUDIT-2: SceneConfig.scene_id is now a `SceneId`; serde Deserialize calls
+/// `validate_id_segment` automatically, so a body with an invalid scene_id
+/// is rejected at deserialize time (HTTP 400 returned by axum), and the
+/// manual check below is no longer needed.
 pub(super) async fn create_scene_endpoint(
     axum::extract::State(state): axum::extract::State<Arc<DaemonState>>,
     Json(scene): Json<crate::scene::SceneConfig>,
 ) -> Response {
-    if data_dir::validate_id_segment(&scene.scene_id).is_err() {
-        return (StatusCode::BAD_REQUEST, "非法 scene_id").into_response();
-    }
     match scene.save(&state.data_root) {
         Ok(()) => {
             let path = data_dir::scene_json_path(&state.data_root, &scene.scene_id);
@@ -610,9 +616,10 @@ pub(super) async fn add_scene_character_endpoint(
     axum::extract::Path(scene_id): axum::extract::Path<String>,
     Json(body): Json<AddCharacterBody>,
 ) -> Response {
-    if data_dir::validate_id_segment(&scene_id).is_err() {
-        return StatusCode::BAD_REQUEST.into_response();
-    }
+    let scene_id = match crate::types::SceneId::new(scene_id) {
+        Ok(s) => s,
+        Err(_) => return StatusCode::BAD_REQUEST.into_response(),
+    };
     if data_dir::validate_id_segment(&body.character_id).is_err() {
         return (StatusCode::BAD_REQUEST, "非法 character_id").into_response();
     }
@@ -626,7 +633,7 @@ pub(super) async fn add_scene_character_endpoint(
         intro: body.intro,
     });
     match scene.save(&state.data_root) {
-        Ok(()) => Json(serde_json::json!({"scene_id": scene_id, "character_count": scene.characters.len()})).into_response(),
+        Ok(()) => Json(serde_json::json!({"scene_id": scene_id.as_str(), "character_count": scene.characters.len()})).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
 }

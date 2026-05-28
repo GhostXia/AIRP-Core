@@ -100,19 +100,22 @@ fn load_char_card_json(root: &std::path::Path, character_id: &str) -> Option<Str
 
 /// MS-6: Scene pipeline — loads SceneConfig, all character cards, merges lorebooks,
 /// builds a multi-character system prompt, and routes session_dir to scene memory/.
+///
+/// AUDIT-2: validates scene_id into SceneId once on entry; downstream functions
+/// receive `&SceneId` so they cannot accidentally bypass validation.
 fn prepare_scene_pipeline(
     payload: &ChatCompletionRequest,
     state: &Arc<DaemonState>,
     scene_id: &str,
 ) -> Result<PreparedPipeline, AirpError> {
-    data_dir::validate_id_segment(scene_id)
+    let scene_id = crate::types::SceneId::new(scene_id)
         .map_err(|e| AirpError::BadRequest(format!("非法 scene_id: {}", e)))?;
 
     // DX-1: per-user data root isolation
     let effective_root =
         data_dir::resolve_effective_root(&state.data_root, payload.user_id.as_deref())?;
 
-    let scene = crate::scene::SceneConfig::load(&effective_root, scene_id)?;
+    let scene = crate::scene::SceneConfig::load(&effective_root, &scene_id)?;
 
     // Load card JSONs + per-character lorebooks
     let mut card_jsons: Vec<(String, Option<String>)> = Vec::new();
@@ -145,7 +148,7 @@ fn prepare_scene_pipeline(
     }
 
     // Scene-level lorebook (always included regardless of merge mode)
-    let scene_lb_path = data_dir::scene_world_lorebook_path(&effective_root, scene_id);
+    let scene_lb_path = data_dir::scene_world_lorebook_path(&effective_root, &scene_id);
     if scene_lb_path.exists() {
         if let Ok(raw) = fs::read_to_string(&scene_lb_path) {
             let cleaned = data_dir::strip_utf8_bom(&raw);
@@ -180,7 +183,7 @@ fn prepare_scene_pipeline(
     );
 
     let session_dir_opt: Option<PathBuf> =
-        data_dir::scene_memory_dir(&effective_root, scene_id).ok();
+        data_dir::scene_memory_dir(&effective_root, &scene_id).ok();
 
     let snapshot = {
         let cfg = state

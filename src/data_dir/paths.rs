@@ -315,38 +315,43 @@ pub fn list_presets(root: &Path) -> Result<Vec<String>, AirpError> {
 }
 
 // ── M_MS: Scene path functions ────────────────────────────────────────────────
+//
+// AUDIT-2: signatures take `&SceneId` so the caller is forced to construct
+// (and thus validate) the ID before touching the filesystem. The compile-time
+// guarantee replaces the previous pattern of manual `validate_id_segment`
+// calls scattered through callers.
 
 /// `scenes/{scene_id}/` directory (not auto-created).
-pub fn scene_dir(root: &Path, scene_id: &str) -> PathBuf {
-    root.join("scenes").join(scene_id)
+pub fn scene_dir(root: &Path, scene_id: &crate::types::SceneId) -> PathBuf {
+    root.join("scenes").join(scene_id.as_str())
 }
 
 /// `scenes/{scene_id}/scene.json` path.
-pub fn scene_json_path(root: &Path, scene_id: &str) -> PathBuf {
+pub fn scene_json_path(root: &Path, scene_id: &crate::types::SceneId) -> PathBuf {
     scene_dir(root, scene_id).join("scene.json")
 }
 
 /// `scenes/{scene_id}/world/` directory, created on demand.
-pub fn scene_world_dir(root: &Path, scene_id: &str) -> Result<PathBuf, AirpError> {
+pub fn scene_world_dir(root: &Path, scene_id: &crate::types::SceneId) -> Result<PathBuf, AirpError> {
     let dir = scene_dir(root, scene_id).join("world");
     fs::create_dir_all(&dir)?;
     Ok(dir)
 }
 
 /// `scenes/{scene_id}/world/lorebook.json` path (not auto-created).
-pub fn scene_world_lorebook_path(root: &Path, scene_id: &str) -> PathBuf {
+pub fn scene_world_lorebook_path(root: &Path, scene_id: &crate::types::SceneId) -> PathBuf {
     scene_dir(root, scene_id).join("world").join("lorebook.json")
 }
 
 /// `scenes/{scene_id}/history/` directory, created on demand.
-pub fn scene_history_dir(root: &Path, scene_id: &str) -> Result<PathBuf, AirpError> {
+pub fn scene_history_dir(root: &Path, scene_id: &crate::types::SceneId) -> Result<PathBuf, AirpError> {
     let dir = scene_dir(root, scene_id).join("history");
     fs::create_dir_all(&dir)?;
     Ok(dir)
 }
 
 /// `scenes/{scene_id}/memory/` directory, created on demand.
-pub fn scene_memory_dir(root: &Path, scene_id: &str) -> Result<PathBuf, AirpError> {
+pub fn scene_memory_dir(root: &Path, scene_id: &crate::types::SceneId) -> Result<PathBuf, AirpError> {
     let dir = scene_dir(root, scene_id).join("memory");
     fs::create_dir_all(&dir)?;
     Ok(dir)
