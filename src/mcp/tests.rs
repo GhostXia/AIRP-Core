@@ -1306,6 +1306,227 @@ fn test_ds11_get_state_history_invalid_id_rejected() {
     assert!(err.message.contains("非法 character_id"));
 }
 
+// ── P0 read-side parity (list/get tools + user resources) ────────────────
+
+#[test]
+fn test_p0_list_characters_empty_when_no_data() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    let resp = s
+        .list_characters_impl(Parameters(ListCharactersRequest {}))
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    assert_eq!(v["count"], 0);
+    assert!(v["characters"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn test_p0_list_characters_after_import() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    std::fs::create_dir_all(tmp.path().join("characters").join("alice")).unwrap();
+    std::fs::create_dir_all(tmp.path().join("characters").join("bob")).unwrap();
+    let resp = s
+        .list_characters_impl(Parameters(ListCharactersRequest {}))
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    assert_eq!(v["count"], 2);
+    let names: Vec<&str> = v["characters"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x.as_str().unwrap())
+        .collect();
+    assert!(names.contains(&"alice"));
+    assert!(names.contains(&"bob"));
+}
+
+#[test]
+fn test_p0_list_users_empty_and_populated() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    // Empty
+    let empty = s.list_users_impl(Parameters(ListUsersRequest {})).unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&empty).unwrap()["count"],
+        0
+    );
+    // After import_user_persona
+    s.import_user_persona_impl(Parameters(ImportUserPersonaRequest {
+        user_id: "alice".to_string(),
+        persona_json: r#"{"name":"Alice"}"#.to_string(),
+        lock: false,
+        idempotency_key: None,
+    }))
+    .unwrap();
+    let after = s.list_users_impl(Parameters(ListUsersRequest {})).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&after).unwrap();
+    assert_eq!(v["count"], 1);
+    assert_eq!(v["users"][0], "alice");
+}
+
+#[test]
+fn test_p0_get_character_missing_card() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    std::fs::create_dir_all(tmp.path().join("characters").join("ghost")).unwrap();
+    let resp = s
+        .get_character_impl(Parameters(GetCharacterRequest {
+            character_id: "ghost".to_string(),
+        }))
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    assert_eq!(v["character_id"], "ghost");
+    assert_eq!(v["card_present"], false);
+    assert_eq!(v["card_format"], "missing");
+    assert_eq!(v["card"], serde_json::Value::Null);
+}
+
+#[test]
+fn test_p0_get_character_with_legacy_card() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    let cdir = tmp.path().join("characters").join("alice");
+    std::fs::create_dir_all(&cdir).unwrap();
+    std::fs::write(
+        cdir.join("card.json"),
+        r#"{"spec":"chara_card_v2","data":{"name":"Alice"}}"#,
+    )
+    .unwrap();
+    let resp = s
+        .get_character_impl(Parameters(GetCharacterRequest {
+            character_id: "alice".to_string(),
+        }))
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    assert_eq!(v["card_present"], true);
+    assert_eq!(v["card_format"], "v2_legacy");
+    assert_eq!(v["card"]["data"]["name"], "Alice");
+}
+
+#[test]
+fn test_p0_get_live_state_missing_returns_empty_obj() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    std::fs::create_dir_all(tmp.path().join("characters").join("alice")).unwrap();
+    let resp = s
+        .get_live_state_impl(Parameters(GetLiveStateRequest {
+            character_id: "alice".to_string(),
+        }))
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    assert_eq!(v["present"], false);
+    assert!(v["state"].is_object());
+    assert_eq!(v["state"].as_object().unwrap().len(), 0);
+}
+
+#[test]
+fn test_p0_get_live_state_after_update() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    std::fs::create_dir_all(tmp.path().join("characters").join("alice")).unwrap();
+    s.update_state_impl(Parameters(UpdateStateRequest {
+        character_id: "alice".to_string(),
+        state_json: r#"{"hp":80,"mp":50}"#.to_string(),
+        overwrite: false,
+        idempotency_key: None,
+    }))
+    .unwrap();
+    let resp = s
+        .get_live_state_impl(Parameters(GetLiveStateRequest {
+            character_id: "alice".to_string(),
+        }))
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    assert_eq!(v["present"], true);
+    assert_eq!(v["state"]["hp"], 80);
+    assert_eq!(v["state"]["mp"], 50);
+}
+
+#[test]
+fn test_p0_user_resource_list_dispatch() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    s.import_user_persona_impl(Parameters(ImportUserPersonaRequest {
+        user_id: "alice".to_string(),
+        persona_json: r#"{"name":"Alice"}"#.to_string(),
+        lock: false,
+        idempotency_key: None,
+    }))
+    .unwrap();
+    let contents = s.dispatch_resource("airp://users").unwrap();
+    assert_eq!(contents.len(), 1);
+    let text = match &contents[0] {
+        rmcp::model::ResourceContents::TextResourceContents { text, .. } => text.clone(),
+        _ => panic!("expected text resource"),
+    };
+    assert!(text.contains("alice"));
+}
+
+#[test]
+fn test_p0_user_persona_resource_dispatch() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    s.import_user_persona_impl(Parameters(ImportUserPersonaRequest {
+        user_id: "alice".to_string(),
+        persona_json: r#"{"name":"Alice","traits":["calm"]}"#.to_string(),
+        lock: false,
+        idempotency_key: None,
+    }))
+    .unwrap();
+    let contents = s
+        .dispatch_resource("airp://users/alice/persona")
+        .unwrap();
+    let text = match &contents[0] {
+        rmcp::model::ResourceContents::TextResourceContents { text, .. } => text.clone(),
+        _ => panic!("expected text resource"),
+    };
+    let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(v["name"], "Alice");
+}
+
+#[test]
+fn test_p0_user_state_resource_dispatch() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    s.update_user_state_impl(Parameters(UpdateUserStateRequest {
+        user_id: "alice".to_string(),
+        state_json: r#"{"learned_basketball":true}"#.to_string(),
+        overwrite: false,
+        idempotency_key: None,
+    }))
+    .unwrap();
+    let contents = s
+        .dispatch_resource("airp://users/alice/state/live")
+        .unwrap();
+    let text = match &contents[0] {
+        rmcp::model::ResourceContents::TextResourceContents { text, .. } => text.clone(),
+        _ => panic!("expected text resource"),
+    };
+    let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(v["learned_basketball"], true);
+}
+
+#[test]
+fn test_p0_user_resource_unknown_subresource_errors() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    let err = s
+        .dispatch_resource("airp://users/alice/nonsense")
+        .unwrap_err();
+    assert!(err.message.contains("未知用户子资源"));
+}
+
+#[test]
+fn test_p0_user_resource_rejects_bad_id() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    let err = s
+        .dispatch_resource("airp://users/..bad/persona")
+        .unwrap_err();
+    assert!(err.message.contains("非法 user_id"));
+}
+
 // ── M_UP: User Persona tools ──────────────────────────────────────────────
 
 #[test]

@@ -210,6 +210,65 @@ impl AirpMcpServer {
             ]);
         }
 
+        // M_UP: airp://users
+        if uri == "airp://users" {
+            let list = crate::data_dir::list_users(&self.data_root).map_err(|e| {
+                ErrorData::internal_error(format!("list_users 失败: {}", e), None)
+            })?;
+            let json = serde_json::to_string(&list).unwrap_or_else(|_| "[]".to_string());
+            return Ok(vec![
+                ResourceContents::text(json, uri).with_mime_type("application/json")
+            ]);
+        }
+
+        // M_UP: airp://users/{id}/...
+        if let Some(rest) = uri.strip_prefix("airp://users/") {
+            let mut split = rest.splitn(2, '/');
+            let uid = split
+                .next()
+                .ok_or_else(|| ErrorData::invalid_params("缺 user_id".to_string(), None))?;
+            let sub_full = split.next().unwrap_or("");
+            let sub = sub_full.split_once('?').map(|(s, _)| s).unwrap_or(sub_full);
+            crate::data_dir::validate_id_segment(uid).map_err(|e| {
+                ErrorData::invalid_params(format!("非法 user_id: {}", e), None)
+            })?;
+            match sub {
+                "persona" => {
+                    let path = crate::data_dir::user_persona_path(&self.data_root, uid);
+                    let body = if path.exists() {
+                        std::fs::read_to_string(&path)
+                            .map(|s| crate::data_dir::strip_utf8_bom(&s).to_owned())
+                            .unwrap_or_else(|_| "{}".to_string())
+                    } else {
+                        // Empty persona indicated by null + locked=false echoed shape
+                        "null".to_string()
+                    };
+                    return Ok(vec![
+                        ResourceContents::text(body, uri).with_mime_type("application/json")
+                    ]);
+                }
+                "state/live" => {
+                    let path = crate::data_dir::user_state_live_path(&self.data_root, uid);
+                    let body = if path.exists() {
+                        std::fs::read_to_string(&path)
+                            .map(|s| crate::data_dir::strip_utf8_bom(&s).to_owned())
+                            .unwrap_or_else(|_| "{}".to_string())
+                    } else {
+                        "{}".to_string()
+                    };
+                    return Ok(vec![
+                        ResourceContents::text(body, uri).with_mime_type("application/json")
+                    ]);
+                }
+                other => {
+                    return Err(ErrorData::invalid_params(
+                        format!("未知用户子资源 '{}' (URI={})", other, uri),
+                        None,
+                    ));
+                }
+            }
+        }
+
         // airp://characters/{id}/...
         let rest = uri
             .strip_prefix("airp://characters/")

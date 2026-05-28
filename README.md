@@ -41,10 +41,10 @@
 
 | 项 | 值 |
 |---|---|
-| 测试 | **387** passing（lib 382 + integration 5），1 ignored |
+| 测试 | **399** passing（lib 394 + integration 5），1 ignored |
 | Clippy `--lib --bins -- -D warnings` | **0** warning |
-| MCP 工具 | 21（全部带 MCP ToolAnnotations 元数据；含 5 个 user persona 工具） |
-| MCP 资源 | 9 个静态 + 模板 |
+| MCP 工具 | 25（含 5 个 user persona + 4 个 P0 读对称工具，全部带 ToolAnnotations） |
+| MCP 资源 | 3 静态 + 9 模板 |
 | MCP Prompts | 5 |
 | 已完成里程碑 | M0–M3 / M_CF / M_PR (PR-1~10) / M_MS / M_MCP / M_DX / M_LS / M_CA / **M_HARDEN (13/13)** |
 | 进行中 | — |
@@ -148,6 +148,10 @@ airp-core diagnose --character-id alice   # 聚焦单个角色
 | `get_user_persona` | 读 base + state + drift_keys | readonly |
 | `update_user_state` | 更新用户变量设定（drift overlay） | mutate |
 | `get_user_state_history` | 用户状态历史快照 | readonly |
+| `list_characters` | 列出全部角色 ID | readonly |
+| `list_users` | 列出全部用户 ID | readonly |
+| `get_character` | 取角色卡 + 元数据 | readonly |
+| `get_live_state` | 读角色当前 state/live.json | readonly |
 
 **User persona 双层模型（M_UP）：**
 - **元设定 / Base**（`users/{id}/persona.json`）：初始人设，可通过 `persona.lock` 封存为只读契约

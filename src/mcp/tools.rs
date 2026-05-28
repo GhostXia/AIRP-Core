@@ -184,6 +184,28 @@ fn default_state_history_n() -> usize {
     10
 }
 
+// ── P0 read-side parity tools (Agent symmetry with diagnose / resources) ──
+
+/// List all character IDs under data/characters/.
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
+pub struct ListCharactersRequest {}
+
+/// List all user IDs under data/users/.
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
+pub struct ListUsersRequest {}
+
+/// Fetch a character's card JSON + basic presence metadata.
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
+pub struct GetCharacterRequest {
+    pub character_id: String,
+}
+
+/// Fetch a character's current `state/live.json` value (or empty `{}`).
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
+pub struct GetLiveStateRequest {
+    pub character_id: String,
+}
+
 // ── M_UP: User Persona request types ─────────────────────────────────────
 
 /// M_UP-1: 导入用户人设（元设定，base persona）。
@@ -1036,6 +1058,96 @@ impl AirpMcpServer {
         .to_string())
     }
 
+    // ── P0 read-side parity implementations ───────────────────────────────
+
+    /// List all character IDs.
+    pub(super) fn list_characters_impl(
+        &self,
+        _params: Parameters<ListCharactersRequest>,
+    ) -> Result<String, ErrorData> {
+        let list = crate::data_dir::list_characters(&self.data_root)
+            .map_err(|e| ErrorData::internal_error(format!("list_characters 失败: {}", e), None))?;
+        Ok(serde_json::json!({
+            "count": list.len(),
+            "characters": list,
+        })
+        .to_string())
+    }
+
+    /// List all user IDs.
+    pub(super) fn list_users_impl(
+        &self,
+        _params: Parameters<ListUsersRequest>,
+    ) -> Result<String, ErrorData> {
+        let list = crate::data_dir::list_users(&self.data_root)
+            .map_err(|e| ErrorData::internal_error(format!("list_users 失败: {}", e), None))?;
+        Ok(serde_json::json!({
+            "count": list.len(),
+            "users": list,
+        })
+        .to_string())
+    }
+
+    /// Fetch a character's card JSON + metadata.
+    pub(super) fn get_character_impl(
+        &self,
+        Parameters(req): Parameters<GetCharacterRequest>,
+    ) -> Result<String, ErrorData> {
+        crate::data_dir::validate_id_segment(&req.character_id)
+            .map_err(|e| ErrorData::invalid_params(format!("非法 character_id: {}", e), None))?;
+        let cdir = self.data_root.join("characters").join(&req.character_id);
+
+        // Same lookup logic as the `airp://characters/{id}/card` resource:
+        // prefer CF-1 folder form, fall back to legacy flat layout.
+        let card_folder_raw = cdir.join("card").join("raw.json");
+        let card_legacy = cdir.join("card.json");
+        let (card_path, card_format) = if card_folder_raw.exists() {
+            (Some(card_folder_raw), "v2_folder")
+        } else if card_legacy.exists() {
+            (Some(card_legacy), "v2_legacy")
+        } else {
+            (None, "missing")
+        };
+
+        let card_json: Option<serde_json::Value> = card_path
+            .as_ref()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|s| serde_json::from_str(crate::data_dir::strip_utf8_bom(&s)).ok());
+
+        Ok(serde_json::json!({
+            "character_id": req.character_id,
+            "card_present": card_path.is_some(),
+            "card_format": card_format,
+            "card": card_json,
+        })
+        .to_string())
+    }
+
+    /// Fetch a character's current state/live.json (or empty object).
+    pub(super) fn get_live_state_impl(
+        &self,
+        Parameters(req): Parameters<GetLiveStateRequest>,
+    ) -> Result<String, ErrorData> {
+        crate::data_dir::validate_id_segment(&req.character_id)
+            .map_err(|e| ErrorData::invalid_params(format!("非法 character_id: {}", e), None))?;
+        let live_path = crate::data_dir::char_state_dir(&self.data_root, &req.character_id)
+            .join("live.json");
+        let state: serde_json::Value = if live_path.exists() {
+            std::fs::read_to_string(&live_path)
+                .ok()
+                .and_then(|s| serde_json::from_str(crate::data_dir::strip_utf8_bom(&s)).ok())
+                .unwrap_or_else(|| serde_json::json!({}))
+        } else {
+            serde_json::json!({})
+        };
+        Ok(serde_json::json!({
+            "character_id": req.character_id,
+            "present": live_path.exists(),
+            "state": state,
+        })
+        .to_string())
+    }
+
     // ── M_UP: User Persona implementations ─────────────────────────────────
 
     /// M_UP-1 implementation: write user persona JSON (元设定).
@@ -1281,6 +1393,12 @@ impl AirpMcpServer {
             use std::io::Write as _;
             let _ = f.write_all(line.as_bytes());
         }
+
+        // AUDIT-13 parity: emit notification to subscribers of user state/live resource.
+        emit_resource_updated(
+            &self.state_subs,
+            format!("airp://users/{}/state/live", req.user_id),
+        );
 
         let response = serde_json::json!({
             "user_id": req.user_id,

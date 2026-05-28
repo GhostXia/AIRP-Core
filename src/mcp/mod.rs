@@ -33,6 +33,8 @@ pub use tools::{
     // M_UP: User Persona
     GetUserPersonaRequest, GetUserStateHistoryRequest, ImportUserPersonaRequest,
     LockUserPersonaRequest, UpdateUserStateRequest,
+    // P0 read-side parity
+    GetCharacterRequest, GetLiveStateRequest, ListCharactersRequest, ListUsersRequest,
 };
 pub use transport_http::mcp_http_router;
 
@@ -149,6 +151,11 @@ impl AirpMcpServer {
             "get_user_persona" => to_err!(self.get_user_persona_impl(Parameters(parse_args!(GetUserPersonaRequest)))),
             "update_user_state" => to_err!(self.update_user_state_impl(Parameters(parse_args!(UpdateUserStateRequest)))),
             "get_user_state_history" => to_err!(self.get_user_state_history_impl(Parameters(parse_args!(GetUserStateHistoryRequest)))),
+            // P0 read-side parity
+            "list_characters" => to_err!(self.list_characters_impl(Parameters(parse_args!(ListCharactersRequest)))),
+            "list_users" => to_err!(self.list_users_impl(Parameters(parse_args!(ListUsersRequest)))),
+            "get_character" => to_err!(self.get_character_impl(Parameters(parse_args!(GetCharacterRequest)))),
+            "get_live_state" => to_err!(self.get_live_state_impl(Parameters(parse_args!(GetLiveStateRequest)))),
             other => Err(format!(
                 "unknown tool: `{}` (use `airp-core list-tools --format summary` to enumerate)",
                 other
@@ -451,6 +458,57 @@ impl AirpMcpServer {
     ) -> Result<String, ErrorData> {
         self.get_user_state_history_impl(params)
     }
+
+    /// P0：列出所有角色 ID。
+    #[tool(
+        description = "列出 data/characters/ 下的所有角色 ID。返回 {count, characters: [...]} JSON。",
+        annotations(title = "list_characters", read_only_hint = true, idempotent_hint = true, open_world_hint = false)
+    )]
+    fn list_characters(
+        &self,
+        params: Parameters<ListCharactersRequest>,
+    ) -> Result<String, ErrorData> {
+        self.list_characters_impl(params)
+    }
+
+    /// P0：列出所有用户 ID。
+    #[tool(
+        description = "列出 data/users/ 下的所有用户 ID。返回 {count, users: [...]} JSON。",
+        annotations(title = "list_users", read_only_hint = true, idempotent_hint = true, open_world_hint = false)
+    )]
+    fn list_users(
+        &self,
+        params: Parameters<ListUsersRequest>,
+    ) -> Result<String, ErrorData> {
+        self.list_users_impl(params)
+    }
+
+    /// P0：获取角色卡 + 元数据。
+    #[tool(
+        description = "返回 {character_id, card_present, card_format, card}。\
+                       card_format 取值：v2_folder / v2_legacy / missing。\
+                       与 airp://characters/{id}/card 资源等价，但便于 Agent 用 tool call 拿。",
+        annotations(title = "get_character", read_only_hint = true, idempotent_hint = true, open_world_hint = false)
+    )]
+    fn get_character(
+        &self,
+        params: Parameters<GetCharacterRequest>,
+    ) -> Result<String, ErrorData> {
+        self.get_character_impl(params)
+    }
+
+    /// P0：读取角色当前 state/live.json。
+    #[tool(
+        description = "返回 {character_id, present, state}。文件不存在时 state={}，present=false。\
+                       与 airp://characters/{id}/state/live 资源等价。",
+        annotations(title = "get_live_state", read_only_hint = true, idempotent_hint = true, open_world_hint = false)
+    )]
+    fn get_live_state(
+        &self,
+        params: Parameters<GetLiveStateRequest>,
+    ) -> Result<String, ErrorData> {
+        self.get_live_state_impl(params)
+    }
 }
 
 // ── MCP-3/4: ServerHandler（资源 + Prompts）────────────────────────────────
@@ -499,6 +557,7 @@ impl ServerHandler for AirpMcpServer {
         let resources = vec![
             mk("airp://characters", "AIRP Characters", "已导入角色卡列表（JSON 数组）"),
             mk("airp://presets", "AIRP Presets", "已导入预设列表（JSON 数组）"),
+            mk("airp://users", "AIRP Users", "已导入用户人设列表（M_UP, JSON 数组）"),
         ];
         Ok(ListResourcesResult {
             resources,
@@ -565,6 +624,19 @@ impl ServerHandler for AirpMcpServer {
                 "airp://presets/{preset_id}/regex",
                 "AIRP Preset Regex Scripts",
                 "预设 regex/ 目录下所有脚本的富元数据列表（含 _filename / scriptName / findRegex / disabled 等字段）。目录不存在返回 []。",
+                "application/json",
+            ),
+            // M_UP: user persona resources
+            mk(
+                "airp://users/{user_id}/persona",
+                "AIRP User Persona (Base)",
+                "用户元设定（immutable base）。文件不存在返回 null。订阅可监听 import_user_persona 写入。",
+                "application/json",
+            ),
+            mk(
+                "airp://users/{user_id}/state/live",
+                "AIRP User State (Drift)",
+                "用户变量设定（drift overlay）。文件不存在返回 {}。订阅可监听 update_user_state 变更。",
                 "application/json",
             ),
         ];
