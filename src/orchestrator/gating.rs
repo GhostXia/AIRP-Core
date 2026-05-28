@@ -358,4 +358,119 @@ mod tests {
         let cp = get_current_checkpoint(temp_dir, char_id);
         assert_eq!(cp, "CP-1"); // 模板默认值
     }
+
+    // AUDIT-4: edge case coverage for gating module
+
+    #[test]
+    fn test_audit_4_get_current_checkpoint_empty_id() {
+        // Empty character_id must not panic on path join, returns default
+        let tmp = tempfile::tempdir().unwrap();
+        let cp = get_current_checkpoint(tmp.path(), "");
+        assert_eq!(cp, "CP-1");
+    }
+
+    #[test]
+    fn test_audit_4_get_current_checkpoint_missing_file() {
+        // Character dir exists but no checkpoints.md anywhere -> default CP-1
+        let tmp = tempfile::tempdir().unwrap();
+        fs::create_dir_all(tmp.path().join("characters").join("ghost")).unwrap();
+        assert_eq!(get_current_checkpoint(tmp.path(), "ghost"), "CP-1");
+    }
+
+    #[test]
+    fn test_audit_4_get_current_checkpoint_malformed_returns_default() {
+        // checkpoints.md without recognizable CP line -> default CP-1
+        let tmp = tempfile::tempdir().unwrap();
+        let gating = tmp.path().join("characters").join("malformed").join("gating");
+        fs::create_dir_all(&gating).unwrap();
+        fs::write(gating.join("checkpoints.md"), "random garbage\nno CP marker").unwrap();
+        assert_eq!(get_current_checkpoint(tmp.path(), "malformed"), "CP-1");
+    }
+
+    #[test]
+    fn test_audit_4_load_filtered_known_no_known_file_returns_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::create_dir_all(tmp.path().join("characters").join("noknown")).unwrap();
+        let filtered = load_filtered_known(tmp.path(), "noknown", "CP-1");
+        assert_eq!(filtered, "");
+    }
+
+    #[test]
+    fn test_audit_4_load_filtered_known_no_disclosure_passes_through() {
+        // known.md present, disclosure.json missing -> all content returned verbatim
+        let tmp = tempfile::tempdir().unwrap();
+        let char_dir = tmp.path().join("characters").join("nodis");
+        fs::create_dir_all(&char_dir).unwrap();
+        fs::write(&char_dir.join("known.md"), "secret line 1\nsecret line 2").unwrap();
+        let filtered = load_filtered_known(tmp.path(), "nodis", "CP-1");
+        assert!(filtered.contains("secret line 1"));
+        assert!(filtered.contains("secret line 2"));
+    }
+
+    #[test]
+    fn test_audit_4_load_filtered_known_malformed_disclosure_passes_through() {
+        // Malformed disclosure.json must not crash, returns raw known
+        let tmp = tempfile::tempdir().unwrap();
+        let char_dir = tmp.path().join("characters").join("bad_disc");
+        fs::create_dir_all(&char_dir).unwrap();
+        fs::write(&char_dir.join("known.md"), "content").unwrap();
+        fs::write(&char_dir.join("disclosure.json"), "{this is not json").unwrap();
+        let filtered = load_filtered_known(tmp.path(), "bad_disc", "CP-1");
+        assert_eq!(filtered, "content");
+    }
+
+    #[test]
+    fn test_audit_4_load_filtered_known_unknown_cp_no_filtering() {
+        // disclosure.json valid but lacks entry for current_cp -> no filtering applied
+        let tmp = tempfile::tempdir().unwrap();
+        let char_dir = tmp.path().join("characters").join("unknown_cp");
+        fs::create_dir_all(&char_dir).unwrap();
+        fs::write(&char_dir.join("known.md"), "line A\nline B").unwrap();
+        fs::write(
+            &char_dir.join("disclosure.json"),
+            r#"{"CP-99": {"forbidden_keys": ["A"]}}"#,
+        )
+        .unwrap();
+        // current_cp is CP-1, not in disclosure
+        let filtered = load_filtered_known(tmp.path(), "unknown_cp", "CP-1");
+        assert!(filtered.contains("line A"));
+        assert!(filtered.contains("line B"));
+    }
+
+    #[test]
+    fn test_audit_4_load_filtered_known_empty_forbidden_keys_passes_all() {
+        let tmp = tempfile::tempdir().unwrap();
+        let char_dir = tmp.path().join("characters").join("empty_fk");
+        fs::create_dir_all(&char_dir).unwrap();
+        fs::write(&char_dir.join("known.md"), "line A\nline B").unwrap();
+        fs::write(
+            &char_dir.join("disclosure.json"),
+            r#"{"CP-1": {"forbidden_keys": []}}"#,
+        )
+        .unwrap();
+        let filtered = load_filtered_known(tmp.path(), "empty_fk", "CP-1");
+        assert!(filtered.contains("line A"));
+        assert!(filtered.contains("line B"));
+    }
+
+    #[test]
+    fn test_audit_4_load_filtered_known_substring_match() {
+        // Verify forbidden_keys works as substring match, not exact match
+        let tmp = tempfile::tempdir().unwrap();
+        let char_dir = tmp.path().join("characters").join("substr");
+        fs::create_dir_all(&char_dir).unwrap();
+        fs::write(
+            &char_dir.join("known.md"),
+            "Alice loves the secret garden.\nBob lives at the manor.",
+        )
+        .unwrap();
+        fs::write(
+            &char_dir.join("disclosure.json"),
+            r#"{"CP-1": {"forbidden_keys": ["secret"]}}"#,
+        )
+        .unwrap();
+        let filtered = load_filtered_known(tmp.path(), "substr", "CP-1");
+        assert!(!filtered.contains("Alice"));
+        assert!(filtered.contains("Bob"));
+    }
 }

@@ -132,4 +132,99 @@ mod tests {
         let list = crate::data_dir::list_scenes(tmp.path()).unwrap();
         assert_eq!(list, vec!["tavern"]);
     }
+
+    // AUDIT-4: edge case coverage for scene module
+
+    #[test]
+    fn test_audit_4_load_nonexistent_scene_errors() {
+        let tmp = tempdir().unwrap();
+        let result = SceneConfig::load(tmp.path(), "no_such_scene");
+        assert!(result.is_err(), "loading nonexistent scene should error");
+    }
+
+    #[test]
+    fn test_audit_4_primary_returns_none_when_only_npcs() {
+        let sc = SceneConfig {
+            scene_id: "npc_only".to_string(),
+            description: String::new(),
+            characters: vec![
+                CharacterEntry {
+                    character_id: "a".to_string(),
+                    role: CharacterRole::Npc,
+                    intro: String::new(),
+                },
+                CharacterEntry {
+                    character_id: "b".to_string(),
+                    role: CharacterRole::Npc,
+                    intro: String::new(),
+                },
+            ],
+            narrator_style: String::new(),
+            lorebook_merge: LorebookMerge::Union,
+            format_hint: String::new(),
+        };
+        assert!(sc.primary().is_none());
+    }
+
+    #[test]
+    fn test_audit_4_primary_returns_first_when_multiple() {
+        // Behavior: if multiple Primary characters defined (config error),
+        // primary() returns the first one. Documents existing semantics.
+        let sc = SceneConfig {
+            scene_id: "multi".to_string(),
+            description: String::new(),
+            characters: vec![
+                CharacterEntry {
+                    character_id: "first".to_string(),
+                    role: CharacterRole::Primary,
+                    intro: String::new(),
+                },
+                CharacterEntry {
+                    character_id: "second".to_string(),
+                    role: CharacterRole::Primary,
+                    intro: String::new(),
+                },
+            ],
+            narrator_style: String::new(),
+            lorebook_merge: LorebookMerge::Union,
+            format_hint: String::new(),
+        };
+        assert_eq!(sc.primary().map(|c| c.character_id.as_str()), Some("first"));
+    }
+
+    #[test]
+    fn test_audit_4_save_creates_scene_dir_if_missing() {
+        let tmp = tempdir().unwrap();
+        // No scenes/ dir exists
+        let sc = sample_scene();
+        sc.save(tmp.path()).unwrap();
+        let expected = tmp.path().join("scenes").join("tavern").join("scene.json");
+        assert!(expected.exists(), "save should create nested dirs");
+    }
+
+    #[test]
+    fn test_audit_4_lorebook_merge_serializes_snake_case() {
+        let json = serde_json::to_string(&LorebookMerge::PrimaryOnly).unwrap();
+        assert_eq!(json, "\"primary_only\"");
+        let json = serde_json::to_string(&LorebookMerge::Union).unwrap();
+        assert_eq!(json, "\"union\"");
+    }
+
+    #[test]
+    fn test_audit_4_character_role_serializes_snake_case() {
+        let json = serde_json::to_string(&CharacterRole::Primary).unwrap();
+        assert_eq!(json, "\"primary\"");
+        let json = serde_json::to_string(&CharacterRole::Npc).unwrap();
+        assert_eq!(json, "\"npc\"");
+    }
+
+    #[test]
+    fn test_audit_4_scene_load_rejects_malformed_json() {
+        let tmp = tempdir().unwrap();
+        let scene_dir = tmp.path().join("scenes").join("broken");
+        std::fs::create_dir_all(&scene_dir).unwrap();
+        std::fs::write(scene_dir.join("scene.json"), "{not json").unwrap();
+        let result = SceneConfig::load(tmp.path(), "broken");
+        assert!(result.is_err(), "malformed JSON should error");
+    }
 }
