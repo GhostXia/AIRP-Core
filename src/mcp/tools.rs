@@ -7,7 +7,7 @@ use super::AirpMcpServer;
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct PingRequest {}
 
-#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
 pub struct ImportCardRequest {
     /// 角色 ID（文件夹名）。二选一传 `card_json` 或 `card_png_base64`。
     pub character_id: String,
@@ -17,6 +17,9 @@ pub struct ImportCardRequest {
     /// PNG 角色卡 base64 编码（可选）。tEXt chara chunk 内 JSON 自动提取。
     #[serde(default)]
     pub card_png_base64: Option<String>,
+    /// AUDIT-12: 幂等键。
+    #[serde(default)]
+    pub idempotency_key: Option<String>,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -27,7 +30,7 @@ pub struct ApplyLorebookRequest {
     pub text: String,
 }
 
-#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
 pub struct StartSessionRequest {
     pub character_id: String,
     /// 可选 session UUID；为空时使用 legacy 默认 session（CF-3 后位于 `memory/`）。
@@ -39,6 +42,9 @@ pub struct StartSessionRequest {
     /// 用户显示名，宏 `{{user}}` 替换用。
     #[serde(default = "default_user_name")]
     pub user_name: String,
+    /// AUDIT-12: 幂等键。
+    #[serde(default)]
+    pub idempotency_key: Option<String>,
 }
 
 pub(super) fn default_user_name() -> String {
@@ -94,7 +100,7 @@ pub struct UpdateStateRequest {
     pub idempotency_key: Option<String>,
 }
 
-#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
 pub struct WritePresetArtifactRequest {
     /// 预设 ID（对应 presets/{id}/ 目录）。
     pub preset_id: String,
@@ -102,9 +108,12 @@ pub struct WritePresetArtifactRequest {
     pub artifact_path: String,
     /// 文件内容（UTF-8 字符串）。
     pub content: String,
+    /// AUDIT-12: 幂等键。
+    #[serde(default)]
+    pub idempotency_key: Option<String>,
 }
 
-#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
 pub struct WriteCharacterArtifactRequest {
     /// 角色 ID（对应 characters/{id}/ 目录）。
     pub character_id: String,
@@ -112,14 +121,20 @@ pub struct WriteCharacterArtifactRequest {
     pub artifact_path: String,
     /// 文件内容（UTF-8 字符串）。
     pub content: String,
+    /// AUDIT-12: 幂等键。
+    #[serde(default)]
+    pub idempotency_key: Option<String>,
 }
 
-#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
 pub struct ImportPresetRequest {
     /// 预设 ID（文件夹名，对应 presets/{id}/preset.json）。
     pub preset_id: String,
     /// SillyTavern Preset JSON 完整内容字符串。必须为合法 JSON。
     pub preset_json: String,
+    /// AUDIT-12: 幂等键。
+    #[serde(default)]
+    pub idempotency_key: Option<String>,
 }
 
 /// PR-5: 列出预设关联的所有正则脚本。
@@ -204,6 +219,19 @@ pub struct GetCharacterRequest {
 #[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
 pub struct GetLiveStateRequest {
     pub character_id: String,
+}
+
+/// P1: delete an entire character directory.
+///
+/// Recursive: removes card / lorebook / state / chat history / volumes /
+/// sessions / gating / analysis artifacts. Destructive — no undo.
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
+pub struct DeleteCharacterRequest {
+    pub character_id: String,
+    /// Safety latch — must be exactly `true` for the operation to proceed.
+    /// Default `false` means "list what would be deleted" (dry-run).
+    #[serde(default)]
+    pub confirm: bool,
 }
 
 // ── M_UP: User Persona request types ─────────────────────────────────────
@@ -313,11 +341,17 @@ impl AirpMcpServer {
         &self,
         Parameters(req): Parameters<ImportCardRequest>,
     ) -> Result<String, ErrorData> {
+        // AUDIT-12: idempotency short-circuit
+        if let Some(ref key) = req.idempotency_key {
+            if let Some(cached) = self.idempotency.get("import_card", key) {
+                return Ok(cached);
+            }
+        }
         let (card_format, _json_str) = crate::daemon::import_card_to_disk(
             &self.data_root,
             &req.character_id,
-            req.card_json,
-            req.card_png_base64,
+            req.card_json.clone(),
+            req.card_png_base64.clone(),
         )
         .map_err(|e| ErrorData::internal_error(format!("import_card 失败: {}", e), None))?;
 
@@ -352,7 +386,11 @@ impl AirpMcpServer {
             "greetings_count": greetings_count,
             "lorebook_entries": lorebook_entries,
         });
-        Ok(result.to_string())
+        let response = result.to_string();
+        if let Some(ref key) = req.idempotency_key {
+            self.idempotency.store("import_card", key, response.clone());
+        }
+        Ok(response)
     }
 
     /// MCP-2.2 实现：lorebook 关键词扫描。
@@ -379,6 +417,12 @@ impl AirpMcpServer {
         &self,
         Parameters(req): Parameters<StartSessionRequest>,
     ) -> Result<String, ErrorData> {
+        // AUDIT-12: idempotency short-circuit
+        if let Some(ref key) = req.idempotency_key {
+            if let Some(cached) = self.idempotency.get("start_session", key) {
+                return Ok(cached);
+            }
+        }
         let char_dir = self.data_root.join("characters").join(&req.character_id);
         let card_path = if char_dir.join("card").join("raw.json").exists() {
             char_dir.join("card").join("raw.json")
@@ -480,7 +524,11 @@ impl AirpMcpServer {
             "greetings_count": greetings.len(),
             "greetings": greetings,
         });
-        Ok(result.to_string())
+        let response = result.to_string();
+        if let Some(ref key) = req.idempotency_key {
+            self.idempotency.store("start_session", key, response.clone());
+        }
+        Ok(response)
     }
 
     /// DS-B 实现：Agent 分析预设后写入产物文件。
@@ -489,6 +537,12 @@ impl AirpMcpServer {
         &self,
         Parameters(req): Parameters<WritePresetArtifactRequest>,
     ) -> Result<String, ErrorData> {
+        // AUDIT-12: idempotency short-circuit
+        if let Some(ref key) = req.idempotency_key {
+            if let Some(cached) = self.idempotency.get("write_preset_artifact", key) {
+                return Ok(cached);
+            }
+        }
         crate::data_dir::validate_id_segment(&req.preset_id)
             .map_err(|e| ErrorData::invalid_params(format!("非法 preset_id: {}", e), None))?;
 
@@ -513,12 +567,16 @@ impl AirpMcpServer {
             ErrorData::internal_error(format!("写文件失败: {}", e), None)
         })?;
 
-        Ok(serde_json::json!({
+        let response = serde_json::json!({
             "preset_id": req.preset_id,
             "artifact_path": req.artifact_path,
             "bytes_written": req.content.len(),
         })
-        .to_string())
+        .to_string();
+        if let Some(ref key) = req.idempotency_key {
+            self.idempotency.store("write_preset_artifact", key, response.clone());
+        }
+        Ok(response)
     }
 
     /// DS-5 实现：导入预设 JSON，写入 presets/{preset_id}/preset.json。
@@ -526,6 +584,12 @@ impl AirpMcpServer {
         &self,
         Parameters(req): Parameters<ImportPresetRequest>,
     ) -> Result<String, ErrorData> {
+        // AUDIT-12: idempotency short-circuit
+        if let Some(ref key) = req.idempotency_key {
+            if let Some(cached) = self.idempotency.get("import_preset", key) {
+                return Ok(cached);
+            }
+        }
         crate::data_dir::validate_id_segment(&req.preset_id)
             .map_err(|e| ErrorData::invalid_params(format!("非法 preset_id: {}", e), None))?;
 
@@ -543,12 +607,16 @@ impl AirpMcpServer {
         std::fs::write(&preset_path, bytes)
             .map_err(|e| ErrorData::internal_error(format!("写 preset.json 失败: {}", e), None))?;
 
-        Ok(serde_json::json!({
+        let response = serde_json::json!({
             "preset_id": req.preset_id,
             "path": preset_path.to_string_lossy(),
             "bytes_written": bytes.len(),
         })
-        .to_string())
+        .to_string();
+        if let Some(ref key) = req.idempotency_key {
+            self.idempotency.store("import_preset", key, response.clone());
+        }
+        Ok(response)
     }
 
     /// PR-5 实现：列出预设关联的所有正则脚本（含文件名 + 全字段）。
@@ -928,6 +996,12 @@ impl AirpMcpServer {
         &self,
         Parameters(req): Parameters<WriteCharacterArtifactRequest>,
     ) -> Result<String, ErrorData> {
+        // AUDIT-12: idempotency short-circuit
+        if let Some(ref key) = req.idempotency_key {
+            if let Some(cached) = self.idempotency.get("write_character_artifact", key) {
+                return Ok(cached);
+            }
+        }
         crate::data_dir::validate_id_segment(&req.character_id)
             .map_err(|e| ErrorData::invalid_params(format!("非法 character_id: {}", e), None))?;
 
@@ -952,12 +1026,16 @@ impl AirpMcpServer {
             ErrorData::internal_error(format!("写文件失败: {}", e), None)
         })?;
 
-        Ok(serde_json::json!({
+        let response = serde_json::json!({
             "character_id": req.character_id,
             "artifact_path": req.artifact_path,
             "bytes_written": req.content.len(),
         })
-        .to_string())
+        .to_string();
+        if let Some(ref key) = req.idempotency_key {
+            self.idempotency.store("write_character_artifact", key, response.clone());
+        }
+        Ok(response)
     }
 
     /// DS-9: 回滚 ChatLog 最后 N 条消息。
@@ -1119,6 +1197,61 @@ impl AirpMcpServer {
             "card_present": card_path.is_some(),
             "card_format": card_format,
             "card": card_json,
+        })
+        .to_string())
+    }
+
+    /// Delete an entire character directory. Safety: requires `confirm=true`.
+    pub(super) fn delete_character_impl(
+        &self,
+        Parameters(req): Parameters<DeleteCharacterRequest>,
+    ) -> Result<String, ErrorData> {
+        crate::data_dir::validate_id_segment(&req.character_id)
+            .map_err(|e| ErrorData::invalid_params(format!("非法 character_id: {}", e), None))?;
+
+        let cdir = self.data_root.join("characters").join(&req.character_id);
+        if !cdir.exists() {
+            return Err(ErrorData::invalid_params(
+                format!("character `{}` 不存在", req.character_id),
+                None,
+            ));
+        }
+
+        // Compute summary of what would be removed (used in both dry-run and
+        // actual delete responses so the caller always sees the scope).
+        let mut top_entries: Vec<String> = Vec::new();
+        if let Ok(rd) = std::fs::read_dir(&cdir) {
+            for entry in rd.flatten() {
+                if let Some(name) = entry.file_name().to_str() {
+                    top_entries.push(name.to_string());
+                }
+            }
+            top_entries.sort();
+        }
+
+        if !req.confirm {
+            return Ok(serde_json::json!({
+                "character_id": req.character_id,
+                "deleted": false,
+                "dry_run": true,
+                "would_remove_top_entries": top_entries,
+                "hint": "pass {\"confirm\":true} to actually delete",
+            })
+            .to_string());
+        }
+
+        std::fs::remove_dir_all(&cdir).map_err(|e| {
+            ErrorData::internal_error(
+                format!("删除 characters/{} 失败: {}", req.character_id, e),
+                None,
+            )
+        })?;
+
+        Ok(serde_json::json!({
+            "character_id": req.character_id,
+            "deleted": true,
+            "dry_run": false,
+            "removed_top_entries": top_entries,
         })
         .to_string())
     }

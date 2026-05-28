@@ -35,6 +35,8 @@ pub use tools::{
     LockUserPersonaRequest, UpdateUserStateRequest,
     // P0 read-side parity
     GetCharacterRequest, GetLiveStateRequest, ListCharactersRequest, ListUsersRequest,
+    // P1: delete character
+    DeleteCharacterRequest,
 };
 pub use transport_http::mcp_http_router;
 
@@ -156,6 +158,7 @@ impl AirpMcpServer {
             "list_users" => to_err!(self.list_users_impl(Parameters(parse_args!(ListUsersRequest)))),
             "get_character" => to_err!(self.get_character_impl(Parameters(parse_args!(GetCharacterRequest)))),
             "get_live_state" => to_err!(self.get_live_state_impl(Parameters(parse_args!(GetLiveStateRequest)))),
+            "delete_character" => to_err!(self.delete_character_impl(Parameters(parse_args!(DeleteCharacterRequest)))),
             other => Err(format!(
                 "unknown tool: `{}` (use `airp-core list-tools --format summary` to enumerate)",
                 other
@@ -508,6 +511,20 @@ impl AirpMcpServer {
         params: Parameters<GetLiveStateRequest>,
     ) -> Result<String, ErrorData> {
         self.get_live_state_impl(params)
+    }
+
+    /// P1：删除整个角色目录（递归）。
+    #[tool(
+        description = "删除 data/characters/{character_id}/ 整目录（递归）。\
+                       默认 `confirm=false` 仅 dry-run，返回 would_remove_top_entries 列表。\
+                       传 `confirm=true` 才真正删除。**不可撤销**。",
+        annotations(title = "delete_character", read_only_hint = false, destructive_hint = true, idempotent_hint = false, open_world_hint = false)
+    )]
+    fn delete_character(
+        &self,
+        params: Parameters<DeleteCharacterRequest>,
+    ) -> Result<String, ErrorData> {
+        self.delete_character_impl(params)
     }
 }
 

@@ -59,7 +59,8 @@ fn test_mcp2_import_card_json() {
         character_id: "凌欺霜".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
-    };
+            idempotency_key: None,
+        };
     let out = s.import_card(Parameters(req)).unwrap();
     let v: serde_json::Value = serde_json::from_str(&out).unwrap();
     assert_eq!(v["character_id"], "凌欺霜");
@@ -81,7 +82,8 @@ fn test_mcp2_import_card_missing_source() {
         character_id: "x".to_string(),
         card_json: None,
         card_png_base64: None,
-    };
+            idempotency_key: None,
+        };
     assert!(s.import_card(Parameters(req)).is_err());
 }
 
@@ -93,7 +95,8 @@ fn test_mcp2_apply_lorebook_triggered() {
         character_id: "凌欺霜".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
-    }))
+            idempotency_key: None,
+        }))
     .unwrap();
     let out = s
         .apply_lorebook(Parameters(ApplyLorebookRequest {
@@ -112,7 +115,8 @@ fn test_mcp2_apply_lorebook_no_match() {
         character_id: "凌欺霜".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
-    }))
+            idempotency_key: None,
+        }))
     .unwrap();
     let out = s
         .apply_lorebook(Parameters(ApplyLorebookRequest {
@@ -145,7 +149,8 @@ fn test_mcp2_start_session_returns_prompt_and_greetings() {
         character_id: "凌欺霜".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
-    }))
+            idempotency_key: None,
+        }))
     .unwrap();
 
     let out = s
@@ -154,6 +159,7 @@ fn test_mcp2_start_session_returns_prompt_and_greetings() {
             session_id: None,
             preset_id: None,
             user_name: "玩家".to_string(),
+            idempotency_key: None,
         }))
         .unwrap();
     let v: serde_json::Value = serde_json::from_str(&out).unwrap();
@@ -174,13 +180,15 @@ fn test_mcp3_dispatch_characters_list() {
         character_id: "凌欺霜".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
-    }))
+            idempotency_key: None,
+        }))
     .unwrap();
     s.import_card(Parameters(ImportCardRequest {
         character_id: "alice".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
-    }))
+            idempotency_key: None,
+        }))
     .unwrap();
 
     let contents = s.dispatch_resource("airp://characters").unwrap();
@@ -202,7 +210,8 @@ fn test_mcp3_dispatch_card() {
         character_id: "凌欺霜".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
-    }))
+            idempotency_key: None,
+        }))
     .unwrap();
 
     let contents = s
@@ -224,7 +233,8 @@ fn test_mcp3_dispatch_lorebook() {
         character_id: "凌欺霜".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
-    }))
+            idempotency_key: None,
+        }))
     .unwrap();
 
     let contents = s
@@ -285,7 +295,8 @@ fn test_mcp4_assemble_system_prompt_works() {
         character_id: "凌欺霜".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
-    }))
+            idempotency_key: None,
+        }))
     .unwrap();
     let sp = s.assemble_system_prompt("凌欺霜", None, "玩家").unwrap();
     assert!(sp.contains("凌欺霜") || sp.contains("天剑阁"), "sp = {}", sp);
@@ -362,6 +373,7 @@ fn test_ds5_import_preset_ok() {
         .import_preset(Parameters(ImportPresetRequest {
             preset_id: "my_preset".to_string(),
             preset_json: preset_json.clone(),
+            idempotency_key: None,
         }))
         .unwrap();
     let v: serde_json::Value = serde_json::from_str(&out).unwrap();
@@ -380,7 +392,8 @@ fn test_ds5_import_preset_invalid_json() {
     let r = s.import_preset(Parameters(ImportPresetRequest {
         preset_id: "bad".to_string(),
         preset_json: "not-json{{".to_string(),
-    }));
+            idempotency_key: None,
+        }));
     assert!(r.is_err());
 }
 
@@ -391,6 +404,7 @@ fn test_ds5_import_preset_bad_id() {
     let r = s.import_preset(Parameters(ImportPresetRequest {
         preset_id: "../etc".to_string(),
         preset_json: "{}".to_string(),
+        idempotency_key: None,
     }));
     assert!(r.is_err());
 }
@@ -418,6 +432,7 @@ fn test_ds3_artifacts_lists_after_write() {
     s.import_preset(Parameters(ImportPresetRequest {
         preset_id: "p1".to_string(),
         preset_json: "{}".to_string(),
+        idempotency_key: None,
     }))
     .unwrap();
 
@@ -425,13 +440,15 @@ fn test_ds3_artifacts_lists_after_write() {
         preset_id: "p1".to_string(),
         artifact_path: "analysis/summary.md".to_string(),
         content: "# Summary".to_string(),
-    }))
+            idempotency_key: None,
+        }))
     .unwrap();
     s.write_preset_artifact(Parameters(WritePresetArtifactRequest {
         preset_id: "p1".to_string(),
         artifact_path: "regex/filters.json".to_string(),
         content: "[]".to_string(),
-    }))
+            idempotency_key: None,
+        }))
     .unwrap();
 
     let contents = s.dispatch_resource("airp://presets/p1/artifacts").unwrap();
@@ -455,7 +472,8 @@ fn test_character_artifacts_empty_when_only_system_files() {
         character_id: "alice".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
-    }))
+            idempotency_key: None,
+        }))
     .unwrap();
 
     let contents = s
@@ -482,19 +500,22 @@ fn test_character_artifacts_after_write() {
         character_id: "alice".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
-    }))
+            idempotency_key: None,
+        }))
     .unwrap();
 
     s.write_character_artifact(Parameters(WriteCharacterArtifactRequest {
         character_id: "alice".to_string(),
         artifact_path: "analysis/profile.md".to_string(),
         content: "# Profile".to_string(),
-    }))
+            idempotency_key: None,
+        }))
     .unwrap();
     s.write_character_artifact(Parameters(WriteCharacterArtifactRequest {
         character_id: "alice".to_string(),
         artifact_path: "analysis/tier.json".to_string(),
         content: r#"{"tier":1}"#.to_string(),
+        idempotency_key: None,
     }))
     .unwrap();
 
@@ -732,7 +753,8 @@ fn test_mcp2_start_session_missing_card() {
         session_id: None,
         preset_id: None,
         user_name: "User".to_string(),
-    }));
+            idempotency_key: None,
+        }));
     assert!(r.is_err());
 }
 
@@ -1177,7 +1199,8 @@ fn test_ds10_list_sessions_after_create_session() {
         character_id: "sess_chr".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
-    }))
+            idempotency_key: None,
+        }))
     .unwrap();
 
     // Create a named session via data_dir
@@ -1304,6 +1327,121 @@ fn test_ds11_get_state_history_invalid_id_rejected() {
         }))
         .unwrap_err();
     assert!(err.message.contains("非法 character_id"));
+}
+
+// ── P1: delete_character + extended idempotency ──────────────────────────
+
+#[test]
+fn test_p1_delete_character_dry_run_default() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    let cdir = tmp.path().join("characters").join("alice");
+    std::fs::create_dir_all(cdir.join("card")).unwrap();
+    std::fs::write(cdir.join("card.json"), "{}").unwrap();
+
+    let resp = s
+        .delete_character_impl(Parameters(DeleteCharacterRequest {
+            character_id: "alice".to_string(),
+            confirm: false,
+        }))
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    assert_eq!(v["deleted"], false);
+    assert_eq!(v["dry_run"], true);
+    // Directory must STILL exist
+    assert!(cdir.exists());
+}
+
+#[test]
+fn test_p1_delete_character_confirmed_removes_dir() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    let cdir = tmp.path().join("characters").join("alice");
+    std::fs::create_dir_all(cdir.join("card")).unwrap();
+    std::fs::write(cdir.join("card.json"), "{}").unwrap();
+
+    let resp = s
+        .delete_character_impl(Parameters(DeleteCharacterRequest {
+            character_id: "alice".to_string(),
+            confirm: true,
+        }))
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    assert_eq!(v["deleted"], true);
+    assert!(!cdir.exists());
+}
+
+#[test]
+fn test_p1_delete_character_nonexistent_errors() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    let err = s
+        .delete_character_impl(Parameters(DeleteCharacterRequest {
+            character_id: "ghost".to_string(),
+            confirm: true,
+        }))
+        .unwrap_err();
+    assert!(err.message.contains("不存在"));
+}
+
+#[test]
+fn test_p1_import_card_idempotency() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    let card_json = serde_json::json!({
+        "spec": "chara_card_v2",
+        "data": {"name":"alice"}
+    })
+    .to_string();
+    let r1 = s
+        .import_card_impl(Parameters(ImportCardRequest {
+            character_id: "alice".to_string(),
+            card_json: Some(card_json.clone()),
+            card_png_base64: None,
+            idempotency_key: Some("ic-key".to_string()),
+        }))
+        .unwrap();
+    // Second call with same key — different content but same key — cache hit.
+    let r2 = s
+        .import_card_impl(Parameters(ImportCardRequest {
+            character_id: "alice".to_string(),
+            card_json: Some(serde_json::json!({
+                "spec":"chara_card_v2",
+                "data":{"name":"DIFFERENT"}
+            }).to_string()),
+            card_png_base64: None,
+            idempotency_key: Some("ic-key".to_string()),
+        }))
+        .unwrap();
+    assert_eq!(r1, r2);
+}
+
+#[test]
+fn test_p1_write_artifact_idempotency() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    std::fs::create_dir_all(tmp.path().join("presets/p1")).unwrap();
+
+    let r1 = s
+        .write_preset_artifact_impl(Parameters(WritePresetArtifactRequest {
+            preset_id: "p1".to_string(),
+            artifact_path: "a/foo.md".to_string(),
+            content: "first".to_string(),
+            idempotency_key: Some("wpa-key".to_string()),
+        }))
+        .unwrap();
+    let r2 = s
+        .write_preset_artifact_impl(Parameters(WritePresetArtifactRequest {
+            preset_id: "p1".to_string(),
+            artifact_path: "a/foo.md".to_string(),
+            content: "second-ignored".to_string(),
+            idempotency_key: Some("wpa-key".to_string()),
+        }))
+        .unwrap();
+    assert_eq!(r1, r2);
+    // File on disk should be the first content
+    let content = std::fs::read_to_string(tmp.path().join("presets/p1/a/foo.md")).unwrap();
+    assert_eq!(content, "first");
 }
 
 // ── P0 read-side parity (list/get tools + user resources) ────────────────
