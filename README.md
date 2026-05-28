@@ -41,7 +41,7 @@
 
 | 项 | 值 |
 |---|---|
-| 测试 | **370** passing（lib 365 + integration 5），1 ignored |
+| 测试 | **376** passing（lib 371 + integration 5），1 ignored |
 | Clippy `--lib --bins -- -D warnings` | **0** warning |
 | MCP 工具 | 16（全部带 MCP ToolAnnotations 元数据） |
 | MCP 资源 | 9 个静态 + 模板 |
@@ -106,6 +106,16 @@ airp-core tool get_recent_context --json '{"character_id":"alice","n":10}'
 ```
 
 退出码 0 = 成功（结果在 stdout）；退出码 1 = 错误（消息在 stderr）。
+
+**5. 一键全景诊断（用户报 bug 时跑这条）**
+
+```bash
+airp-core diagnose                        # 全量 JSON
+airp-core diagnose --format summary       # 人可读简表
+airp-core diagnose --character-id alice   # 聚焦单个角色
+```
+
+输出含：data root 健康、settings 字段（敏感字段仅 `*_set` 布尔，**永不明文**）、所有角色 / 预设 / 场景概要（卡片状态、lorebook 条目数、chat 行数、卷数、当前 CP 等）。用户复制粘贴 → 维护者立即定位问题。
 
 便捷脚本：`run_daemon.bat`（增量编译 + 启动）、`run_tests.bat`。
 

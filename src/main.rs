@@ -53,6 +53,27 @@ enum Commands {
         #[arg(long, default_value = "json")]
         format: String,
     },
+    /// 一次性产出当前 data root 的全景诊断报告（JSON 到 stdout）。
+    ///
+    /// 用户报告问题时跑这条命令，粘贴 JSON，维护者立刻看到全状态：
+    /// 角色列表 / 卡片 / lorebook / 状态 / chat 历史长度 / 卷数 / preset 列表 /
+    /// scene 列表 / settings（脱敏，仅 *_set 布尔）。
+    ///
+    /// API 密钥 / access_api_key 等敏感字段**永不**输出明文。
+    Diagnose {
+        /// 数据根目录，默认沿用 AIRP_DATA_DIR 或 ./data。
+        #[arg(long)]
+        data_dir: Option<PathBuf>,
+        /// 仅诊断指定角色（缩小报告范围）。
+        #[arg(long)]
+        character_id: Option<String>,
+        /// 仅诊断指定场景。
+        #[arg(long)]
+        scene_id: Option<String>,
+        /// `json`（默认，全量结构化）或 `summary`（人可读简表）。
+        #[arg(long, default_value = "json")]
+        format: String,
+    },
     /// 一次性调用单个 MCP 工具（同步、不起 server），用于 agent shell 自动化。
     ///
     /// 例：
@@ -201,6 +222,47 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // (e.g. client closed stdin). Idempotent — no-op if signal already fired.
             signal_task.abort();
             tracing::info!(?quit_reason, "MCP stdio server 已退出");
+        }
+        Commands::Diagnose { data_dir, character_id, scene_id, format } => {
+            let root = data_dir
+                .or_else(|| std::env::var("AIRP_DATA_DIR").ok().map(PathBuf::from))
+                .unwrap_or_else(|| PathBuf::from("data"));
+            let report = airp_core::diagnose::run_diagnose(
+                &root,
+                character_id.as_deref(),
+                scene_id.as_deref(),
+            );
+            match format.as_str() {
+                "summary" => {
+                    let chars = report["characters"].as_array().map(|a| a.len()).unwrap_or(0);
+                    let presets = report["presets"].as_array().map(|a| a.len()).unwrap_or(0);
+                    let scenes = report["scenes"].as_array().map(|a| a.len()).unwrap_or(0);
+                    println!("AIRP-Core diagnose (v{})", env!("CARGO_PKG_VERSION"));
+                    println!("  data_root        : {}", report["data_root"].as_str().unwrap_or("?"));
+                    println!("  data_root_exists : {}", report["data_root_exists"]);
+                    println!("  settings.present : {}", report["settings"]["present"]);
+                    println!("  characters       : {}", chars);
+                    println!("  presets          : {}", presets);
+                    println!("  scenes           : {}", scenes);
+                    if let Some(arr) = report["characters"].as_array() {
+                        for c in arr {
+                            println!(
+                                "    - {} : card={} lore={} chat={} vols={} cp={}",
+                                c["id"].as_str().unwrap_or("?"),
+                                c["card_present"],
+                                c["lorebook_entries"],
+                                c["chat_log_messages"],
+                                c["volume_count"],
+                                c["current_checkpoint"].as_str().unwrap_or("?"),
+                            );
+                        }
+                    }
+                }
+                _ => {
+                    let s = serde_json::to_string_pretty(&report)?;
+                    println!("{}", s);
+                }
+            }
         }
         Commands::Tool { name, json, data_dir } => {
             // Single-shot MCP tool invocation. No HTTP / stdio server lifetime.

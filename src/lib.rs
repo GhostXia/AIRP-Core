@@ -20,6 +20,7 @@ pub mod chat_store;
 pub mod config;
 pub mod daemon;
 pub mod data_dir;
+pub mod diagnose;
 pub mod error;
 pub mod mcp;
 pub mod orchestrator;
