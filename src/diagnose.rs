@@ -27,9 +27,88 @@ pub fn run_diagnose(
         "data_root_exists": data_root.exists(),
         "settings": describe_settings(data_root),
         "characters": describe_characters(data_root, focus_character),
+        "users": describe_users(data_root),
         "presets": describe_presets(data_root),
         "scenes": describe_scenes(data_root, focus_scene),
     })
+}
+
+/// M_UP debug: enumerate user personas under data/users/.
+fn describe_users(data_root: &Path) -> Value {
+    let dir = data_root.join("users");
+    if !dir.exists() {
+        return json!([]);
+    }
+    let mut out: Vec<Value> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            if !entry.path().is_dir() {
+                continue;
+            }
+            let id = match entry.file_name().to_str() {
+                Some(s) => s.to_string(),
+                None => continue,
+            };
+            let user_dir = entry.path();
+            let persona_path = user_dir.join("persona.json");
+            let lock_path = user_dir.join("persona.lock");
+            let state_live = user_dir.join("state").join("live.json");
+            let state_history = user_dir.join("state").join("history.jsonl");
+
+            let persona_name: Option<String> = std::fs::read_to_string(&persona_path)
+                .ok()
+                .and_then(|s| serde_json::from_str::<Value>(crate::data_dir::strip_utf8_bom(&s)).ok())
+                .and_then(|v| {
+                    v.get("name")
+                        .and_then(|n| n.as_str())
+                        .map(|s| s.to_string())
+                });
+
+            // drift_key_count: keys in current_state not in persona
+            let drift_key_count: usize =
+                match (persona_path.exists(), state_live.exists()) {
+                    (true, true) => {
+                        let p: Option<Value> = std::fs::read_to_string(&persona_path)
+                            .ok()
+                            .and_then(|s| {
+                                serde_json::from_str(crate::data_dir::strip_utf8_bom(&s)).ok()
+                            });
+                        let s: Option<Value> = std::fs::read_to_string(&state_live)
+                            .ok()
+                            .and_then(|s| {
+                                serde_json::from_str(crate::data_dir::strip_utf8_bom(&s)).ok()
+                            });
+                        match (p, s) {
+                            (Some(pv), Some(sv)) => match (pv.as_object(), sv.as_object()) {
+                                (Some(pm), Some(sm)) => {
+                                    sm.keys().filter(|k| !pm.contains_key(k.as_str())).count()
+                                }
+                                _ => 0,
+                            },
+                            _ => 0,
+                        }
+                    }
+                    _ => 0,
+                };
+
+            out.push(json!({
+                "id": id,
+                "persona_present": persona_path.exists(),
+                "persona_name": persona_name,
+                "locked": lock_path.exists(),
+                "state_live_present": state_live.exists(),
+                "state_history_lines": count_jsonl_lines(&state_history),
+                "drift_key_count": drift_key_count,
+            }));
+        }
+    }
+    out.sort_by(|a, b| {
+        a.get("id")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .cmp(b.get("id").and_then(|x| x.as_str()).unwrap_or(""))
+    });
+    Value::Array(out)
 }
 
 fn describe_settings(data_root: &Path) -> Value {
@@ -143,19 +222,68 @@ fn describe_one_character(data_root: &Path, id: &str) -> Value {
     // Gating checkpoint
     let checkpoint = crate::orchestrator::gating::get_current_checkpoint(data_root, id);
 
+    // Chat log tail — last 3 messages (role + content truncated to 200 chars)
+    let chat_tail = read_chat_tail(&chat_log, 3);
+
+    // State live snapshot (current values)
+    let state_live_value: Option<Value> = if state_live {
+        std::fs::read_to_string(char_dir.join("state").join("live.json"))
+            .ok()
+            .and_then(|s| serde_json::from_str(crate::data_dir::strip_utf8_bom(&s)).ok())
+    } else {
+        None
+    };
+
     json!({
         "id": id,
         "card_present": card_path.is_some(),
         "card_format": card_format,
         "lorebook_entries": lorebook_entries,
         "state_live_present": state_live,
+        "state_live": state_live_value,
         "state_history_lines": state_history_lines,
         "chat_log_messages": chat_log_messages,
+        "chat_tail": chat_tail,
         "volume_count": volume_count,
         "current_md_tokens_estimate": current_md_tokens,
         "sessions_count": sessions_count,
         "current_checkpoint": checkpoint,
     })
+}
+
+/// Read last N messages from chat_log.jsonl (newest-last), truncating
+/// each `content` to 200 chars for compact debug output.
+fn read_chat_tail(path: &Path, n: usize) -> Vec<Value> {
+    if !path.exists() {
+        return Vec::new();
+    }
+    let content = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(_) => return Vec::new(),
+    };
+    let lines: Vec<&str> = content
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .collect();
+    let start = lines.len().saturating_sub(n);
+    lines[start..]
+        .iter()
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .map(|mut v| {
+            // Truncate content
+            if let Some(c) = v.get("content").and_then(|x| x.as_str()) {
+                let truncated: String = c.chars().take(200).collect();
+                let trailing = if c.chars().count() > 200 { "…" } else { "" };
+                if let Some(obj) = v.as_object_mut() {
+                    obj.insert(
+                        "content".to_string(),
+                        Value::String(format!("{}{}", truncated, trailing)),
+                    );
+                }
+            }
+            v
+        })
+        .collect()
 }
 
 fn count_lorebook_entries(char_dir: &Path) -> usize {

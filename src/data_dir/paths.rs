@@ -314,6 +314,66 @@ pub fn list_presets(root: &Path) -> Result<Vec<String>, AirpError> {
     Ok(seen.into_iter().collect())
 }
 
+// ── M_UP: User Persona path functions ─────────────────────────────────────────
+//
+// User personas mirror character cards: `persona.json` is the immutable
+// 元设定 (base setup), `state/live.json` is the mutable 变量设定 (drift
+// overlay), and `state/history.jsonl` records the timeline. A persona.lock
+// sentinel file marks a sealed (read-only) persona — further `import_user`
+// calls on a locked persona are rejected so the base contract stays stable
+// across an entire RP campaign.
+
+/// `users/{user_id}/` directory (not auto-created).
+pub fn user_dir(root: &Path, user_id: &str) -> PathBuf {
+    root.join("users").join(user_id)
+}
+
+/// `users/{user_id}/persona.json` — immutable base persona (元设定).
+pub fn user_persona_path(root: &Path, user_id: &str) -> PathBuf {
+    user_dir(root, user_id).join("persona.json")
+}
+
+/// `users/{user_id}/persona.lock` — sentinel; existence = persona is sealed.
+pub fn user_persona_lock_path(root: &Path, user_id: &str) -> PathBuf {
+    user_dir(root, user_id).join("persona.lock")
+}
+
+/// `users/{user_id}/state/` directory, created on demand.
+pub fn user_state_dir(root: &Path, user_id: &str) -> Result<PathBuf, AirpError> {
+    let dir = user_dir(root, user_id).join("state");
+    fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+/// `users/{user_id}/state/live.json` — current 变量设定 (drift overlay).
+pub fn user_state_live_path(root: &Path, user_id: &str) -> PathBuf {
+    user_dir(root, user_id).join("state").join("live.json")
+}
+
+/// `users/{user_id}/state/history.jsonl` — append-only snapshot timeline.
+pub fn user_state_history_path(root: &Path, user_id: &str) -> PathBuf {
+    user_dir(root, user_id).join("state").join("history.jsonl")
+}
+
+/// List all user IDs present under `data/users/`.
+pub fn list_users(root: &Path) -> Result<Vec<String>, AirpError> {
+    let dir = root.join("users");
+    let mut out = Vec::new();
+    if !dir.exists() {
+        return Ok(out);
+    }
+    for entry in fs::read_dir(&dir)? {
+        let entry = entry?;
+        if entry.path().is_dir() {
+            if let Some(name) = entry.file_name().to_str() {
+                out.push(name.to_string());
+            }
+        }
+    }
+    out.sort();
+    Ok(out)
+}
+
 // ── M_MS: Scene path functions ────────────────────────────────────────────────
 //
 // AUDIT-2: signatures take `&SceneId` so the caller is forced to construct

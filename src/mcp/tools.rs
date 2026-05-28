@@ -184,6 +184,66 @@ fn default_state_history_n() -> usize {
     10
 }
 
+// ── M_UP: User Persona request types ─────────────────────────────────────
+
+/// M_UP-1: 导入用户人设（元设定，base persona）。
+///
+/// 若已存在 `persona.lock` 则拒绝（base 已封存）。`persona_json` 是用户自由
+/// 定义的 JSON 对象，必须含 `name` 字段；其余字段（description / traits /
+/// 任何额外 key）由 Agent 自定义。
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
+pub struct ImportUserPersonaRequest {
+    /// 用户 ID（对应 `users/{user_id}/` 目录）。
+    pub user_id: String,
+    /// 用户 persona JSON 字符串（必须是合法 JSON 对象且含 `name`）。
+    pub persona_json: String,
+    /// 导入后立即封存（写 persona.lock）。默认 false（允许后续更新 base）。
+    #[serde(default)]
+    pub lock: bool,
+    /// AUDIT-12: 幂等键。
+    #[serde(default)]
+    pub idempotency_key: Option<String>,
+}
+
+/// M_UP-2: 封存用户 persona（创建 `persona.lock`，禁止后续 base 修改）。
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
+pub struct LockUserPersonaRequest {
+    pub user_id: String,
+}
+
+/// M_UP-3: 读取用户 persona 全貌。
+///
+/// 返回 `{user_id, persona, locked, current_state, drift_keys}`；
+/// `drift_keys` 是 current_state 与 persona 顶层键的差集，供 Agent 比对元设定
+/// 与变量设定的偏移。
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
+pub struct GetUserPersonaRequest {
+    pub user_id: String,
+}
+
+/// M_UP-4: 更新用户 state（变量设定 / 漂移层）。
+///
+/// 语义与 `update_state`（角色）一致：默认 merge，`overwrite=true` 全量替换。
+/// **不修改 persona.json**（即使 persona 未封存也仅由 import 路径写）。
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
+pub struct UpdateUserStateRequest {
+    pub user_id: String,
+    /// 状态 JSON 字符串（必须是合法 JSON 对象）。
+    pub state_json: String,
+    #[serde(default)]
+    pub overwrite: bool,
+    #[serde(default)]
+    pub idempotency_key: Option<String>,
+}
+
+/// M_UP-5: 读取用户 state 快照历史。
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
+pub struct GetUserStateHistoryRequest {
+    pub user_id: String,
+    #[serde(default = "default_state_history_n")]
+    pub n: usize,
+}
+
 // ── 工具实现（业务逻辑）─────────────────────────────────────────────────────
 // #[tool_router] 宏生成的 fn tool_router() 是 mod.rs 私有，故 thin wrappers 留在 mod.rs。
 // 此处只存放实际业务逻辑（供 mod.rs wrappers 调用，pub(super) 可见）。
@@ -971,6 +1031,305 @@ impl AirpMcpServer {
         Ok(serde_json::json!({
             "character_id": req.character_id,
             "entries": entries,
+            "count": count,
+        })
+        .to_string())
+    }
+
+    // ── M_UP: User Persona implementations ─────────────────────────────────
+
+    /// M_UP-1 implementation: write user persona JSON (元设定).
+    pub(super) fn import_user_persona_impl(
+        &self,
+        Parameters(req): Parameters<ImportUserPersonaRequest>,
+    ) -> Result<String, ErrorData> {
+        // AUDIT-12: idempotency
+        if let Some(ref key) = req.idempotency_key {
+            if let Some(cached) = self.idempotency.get("import_user_persona", key) {
+                return Ok(cached);
+            }
+        }
+
+        crate::data_dir::validate_id_segment(&req.user_id)
+            .map_err(|e| ErrorData::invalid_params(format!("非法 user_id: {}", e), None))?;
+
+        // Reject if locked
+        let lock_path = crate::data_dir::user_persona_lock_path(&self.data_root, &req.user_id);
+        if lock_path.exists() {
+            return Err(ErrorData::invalid_params(
+                format!(
+                    "user `{}` persona 已封存（persona.lock 存在），拒绝重写",
+                    req.user_id
+                ),
+                None,
+            ));
+        }
+
+        // Validate JSON + require `name`
+        let parsed: serde_json::Value = serde_json::from_str(&req.persona_json).map_err(|e| {
+            ErrorData::invalid_params(format!("persona_json 非合法 JSON: {}", e), None)
+        })?;
+        if !parsed.is_object() {
+            return Err(ErrorData::invalid_params(
+                "persona_json 必须是 JSON 对象（{...}）".to_string(),
+                None,
+            ));
+        }
+        let name = parsed
+            .get("name")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| {
+                ErrorData::invalid_params(
+                    "persona_json 必须含非空 `name` 字段".to_string(),
+                    None,
+                )
+            })?
+            .to_string();
+
+        // Write
+        let user_dir = crate::data_dir::user_dir(&self.data_root, &req.user_id);
+        std::fs::create_dir_all(&user_dir).map_err(|e| {
+            ErrorData::internal_error(format!("创建 users/{} 目录失败: {}", req.user_id, e), None)
+        })?;
+        let persona_path = crate::data_dir::user_persona_path(&self.data_root, &req.user_id);
+        let pretty = serde_json::to_string_pretty(&parsed).unwrap_or(req.persona_json.clone());
+        std::fs::write(&persona_path, pretty.as_bytes()).map_err(|e| {
+            ErrorData::internal_error(format!("写 persona.json 失败: {}", e), None)
+        })?;
+
+        let locked = if req.lock {
+            std::fs::write(&lock_path, b"locked\n").map_err(|e| {
+                ErrorData::internal_error(format!("写 persona.lock 失败: {}", e), None)
+            })?;
+            true
+        } else {
+            false
+        };
+
+        let response = serde_json::json!({
+            "user_id": req.user_id,
+            "name": name,
+            "locked": locked,
+            "persona_path": persona_path.display().to_string(),
+        })
+        .to_string();
+
+        if let Some(ref key) = req.idempotency_key {
+            self.idempotency.store("import_user_persona", key, response.clone());
+        }
+
+        Ok(response)
+    }
+
+    /// M_UP-2 implementation: seal user persona (write `persona.lock`).
+    pub(super) fn lock_user_persona_impl(
+        &self,
+        Parameters(req): Parameters<LockUserPersonaRequest>,
+    ) -> Result<String, ErrorData> {
+        crate::data_dir::validate_id_segment(&req.user_id)
+            .map_err(|e| ErrorData::invalid_params(format!("非法 user_id: {}", e), None))?;
+
+        let persona_path = crate::data_dir::user_persona_path(&self.data_root, &req.user_id);
+        if !persona_path.exists() {
+            return Err(ErrorData::invalid_params(
+                format!("user `{}` persona.json 不存在；先调 import_user_persona", req.user_id),
+                None,
+            ));
+        }
+
+        let lock_path = crate::data_dir::user_persona_lock_path(&self.data_root, &req.user_id);
+        let was_locked = lock_path.exists();
+        if !was_locked {
+            std::fs::write(&lock_path, b"locked\n").map_err(|e| {
+                ErrorData::internal_error(format!("写 persona.lock 失败: {}", e), None)
+            })?;
+        }
+
+        Ok(serde_json::json!({
+            "user_id": req.user_id,
+            "locked": true,
+            "was_already_locked": was_locked,
+        })
+        .to_string())
+    }
+
+    /// M_UP-3 implementation: read base + current_state + drift_keys.
+    pub(super) fn get_user_persona_impl(
+        &self,
+        Parameters(req): Parameters<GetUserPersonaRequest>,
+    ) -> Result<String, ErrorData> {
+        crate::data_dir::validate_id_segment(&req.user_id)
+            .map_err(|e| ErrorData::invalid_params(format!("非法 user_id: {}", e), None))?;
+
+        let persona_path = crate::data_dir::user_persona_path(&self.data_root, &req.user_id);
+        let persona: Option<serde_json::Value> = if persona_path.exists() {
+            std::fs::read_to_string(&persona_path)
+                .ok()
+                .and_then(|s| serde_json::from_str(crate::data_dir::strip_utf8_bom(&s)).ok())
+        } else {
+            None
+        };
+        let locked = crate::data_dir::user_persona_lock_path(&self.data_root, &req.user_id).exists();
+
+        let live_path = crate::data_dir::user_state_live_path(&self.data_root, &req.user_id);
+        let current_state: Option<serde_json::Value> = if live_path.exists() {
+            std::fs::read_to_string(&live_path)
+                .ok()
+                .and_then(|s| serde_json::from_str(crate::data_dir::strip_utf8_bom(&s)).ok())
+        } else {
+            None
+        };
+
+        // drift_keys = current_state keys NOT present in persona (top-level only).
+        // Server does NOT decide semantic conflicts — Agent reasons over the full
+        // base + state below to decide whether e.g. "skills:basketball" in state
+        // contradicts "skills:none" in persona.
+        let drift_keys: Vec<String> = match (&persona, &current_state) {
+            (Some(p), Some(s)) => match (p.as_object(), s.as_object()) {
+                (Some(pm), Some(sm)) => sm
+                    .keys()
+                    .filter(|k| !pm.contains_key(k.as_str()))
+                    .cloned()
+                    .collect(),
+                _ => Vec::new(),
+            },
+            (None, Some(s)) => s
+                .as_object()
+                .map(|m| m.keys().cloned().collect())
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        };
+
+        Ok(serde_json::json!({
+            "user_id": req.user_id,
+            "persona": persona,
+            "locked": locked,
+            "current_state": current_state,
+            "drift_keys": drift_keys,
+        })
+        .to_string())
+    }
+
+    /// M_UP-4 implementation: merge / overwrite live state + append snapshot.
+    pub(super) fn update_user_state_impl(
+        &self,
+        Parameters(req): Parameters<UpdateUserStateRequest>,
+    ) -> Result<String, ErrorData> {
+        if let Some(ref key) = req.idempotency_key {
+            if let Some(cached) = self.idempotency.get("update_user_state", key) {
+                return Ok(cached);
+            }
+        }
+
+        crate::data_dir::validate_id_segment(&req.user_id)
+            .map_err(|e| ErrorData::invalid_params(format!("非法 user_id: {}", e), None))?;
+
+        let delta: serde_json::Value = serde_json::from_str(&req.state_json).map_err(|e| {
+            ErrorData::invalid_params(format!("state_json 非合法 JSON: {}", e), None)
+        })?;
+        if !delta.is_object() {
+            return Err(ErrorData::invalid_params(
+                "state_json 必须是 JSON 对象（{...}）".to_string(),
+                None,
+            ));
+        }
+
+        let state_dir = crate::data_dir::user_state_dir(&self.data_root, &req.user_id)
+            .map_err(|e| ErrorData::internal_error(format!("创建 state/ 目录失败: {}", e), None))?;
+        let live_path = state_dir.join("live.json");
+
+        let merged: serde_json::Value = if req.overwrite {
+            delta.clone()
+        } else {
+            let existing: serde_json::Value = if live_path.exists() {
+                std::fs::read_to_string(&live_path)
+                    .ok()
+                    .and_then(|s| serde_json::from_str(crate::data_dir::strip_utf8_bom(&s)).ok())
+                    .unwrap_or_else(|| serde_json::json!({}))
+            } else {
+                serde_json::json!({})
+            };
+            let mut merged = existing;
+            if let (Some(m), Some(d)) = (merged.as_object_mut(), delta.as_object()) {
+                for (k, v) in d {
+                    m.insert(k.clone(), v.clone());
+                }
+            }
+            merged
+        };
+
+        let pretty = serde_json::to_string_pretty(&merged)
+            .map_err(|e| ErrorData::internal_error(format!("序列化失败: {}", e), None))?;
+        std::fs::write(&live_path, pretty.as_bytes())
+            .map_err(|e| ErrorData::internal_error(format!("写 live.json 失败: {}", e), None))?;
+
+        // Append snapshot
+        let history_path =
+            crate::data_dir::user_state_history_path(&self.data_root, &req.user_id);
+        let snapshot = serde_json::json!({
+            "ts": chrono::Utc::now().to_rfc3339(),
+            "state": merged,
+        });
+        let mut line = serde_json::to_string(&snapshot).unwrap_or_default();
+        line.push('\n');
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&history_path)
+        {
+            use std::io::Write as _;
+            let _ = f.write_all(line.as_bytes());
+        }
+
+        let response = serde_json::json!({
+            "user_id": req.user_id,
+            "overwrite": req.overwrite,
+            "fields_updated": delta.as_object().map(|m| m.len()).unwrap_or(0),
+            "state": merged,
+        })
+        .to_string();
+
+        if let Some(ref key) = req.idempotency_key {
+            self.idempotency.store("update_user_state", key, response.clone());
+        }
+
+        Ok(response)
+    }
+
+    /// M_UP-5 implementation: recent state history snapshots (newest-first).
+    pub(super) fn get_user_state_history_impl(
+        &self,
+        Parameters(req): Parameters<GetUserStateHistoryRequest>,
+    ) -> Result<String, ErrorData> {
+        crate::data_dir::validate_id_segment(&req.user_id)
+            .map_err(|e| ErrorData::invalid_params(format!("非法 user_id: {}", e), None))?;
+
+        let history_path =
+            crate::data_dir::user_state_history_path(&self.data_root, &req.user_id);
+        let n = req.n.clamp(1, 1000);
+        let entries: Vec<serde_json::Value> = if history_path.exists() {
+            std::fs::read_to_string(&history_path)
+                .ok()
+                .map(|s| {
+                    s.lines()
+                        .filter(|l| !l.trim().is_empty())
+                        .filter_map(|l| serde_json::from_str(l).ok())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        // Newest-first
+        let mut rev: Vec<_> = entries.into_iter().rev().take(n).collect();
+        // Reverse back so user can read top-down newest -> older? Actually convention
+        // for state_history was newest-first; align with character get_state_history.
+        let count = rev.len();
+        let _ = rev.iter_mut(); // no-op to keep mut binding warning-free
+        Ok(serde_json::json!({
+            "user_id": req.user_id,
+            "entries": rev,
             "count": count,
         })
         .to_string())

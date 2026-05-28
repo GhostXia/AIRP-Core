@@ -1306,6 +1306,258 @@ fn test_ds11_get_state_history_invalid_id_rejected() {
     assert!(err.message.contains("非法 character_id"));
 }
 
+// ── M_UP: User Persona tools ──────────────────────────────────────────────
+
+#[test]
+fn test_mup_import_user_persona_basic() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    let req = ImportUserPersonaRequest {
+        user_id: "alice".to_string(),
+        persona_json: r#"{"name":"Alice","description":"unable to play basketball"}"#.to_string(),
+        lock: false,
+        idempotency_key: None,
+    };
+    let resp = s.import_user_persona_impl(Parameters(req)).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    assert_eq!(v["user_id"], "alice");
+    assert_eq!(v["name"], "Alice");
+    assert_eq!(v["locked"], false);
+    // File present
+    assert!(tmp.path().join("users/alice/persona.json").exists());
+    assert!(!tmp.path().join("users/alice/persona.lock").exists());
+}
+
+#[test]
+fn test_mup_import_user_persona_rejects_missing_name() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    let req = ImportUserPersonaRequest {
+        user_id: "noname".to_string(),
+        persona_json: r#"{"description":"no name field"}"#.to_string(),
+        lock: false,
+        idempotency_key: None,
+    };
+    let err = s.import_user_persona_impl(Parameters(req)).unwrap_err();
+    assert!(err.message.contains("name"));
+}
+
+#[test]
+fn test_mup_import_with_lock_creates_lock_file() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    let req = ImportUserPersonaRequest {
+        user_id: "alice".to_string(),
+        persona_json: r#"{"name":"Alice"}"#.to_string(),
+        lock: true,
+        idempotency_key: None,
+    };
+    let resp = s.import_user_persona_impl(Parameters(req)).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    assert_eq!(v["locked"], true);
+    assert!(tmp.path().join("users/alice/persona.lock").exists());
+}
+
+#[test]
+fn test_mup_locked_persona_rejects_reimport() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    // First import + lock
+    s.import_user_persona_impl(Parameters(ImportUserPersonaRequest {
+        user_id: "alice".to_string(),
+        persona_json: r#"{"name":"Alice"}"#.to_string(),
+        lock: true,
+        idempotency_key: None,
+    }))
+    .unwrap();
+    // Second import must fail
+    let err = s
+        .import_user_persona_impl(Parameters(ImportUserPersonaRequest {
+            user_id: "alice".to_string(),
+            persona_json: r#"{"name":"Bob"}"#.to_string(),
+            lock: false,
+            idempotency_key: None,
+        }))
+        .unwrap_err();
+    assert!(err.message.contains("封存"));
+}
+
+#[test]
+fn test_mup_lock_persona_idempotent() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    s.import_user_persona_impl(Parameters(ImportUserPersonaRequest {
+        user_id: "alice".to_string(),
+        persona_json: r#"{"name":"Alice"}"#.to_string(),
+        lock: false,
+        idempotency_key: None,
+    }))
+    .unwrap();
+    // First lock — was_already_locked=false
+    let r1 = s
+        .lock_user_persona_impl(Parameters(LockUserPersonaRequest {
+            user_id: "alice".to_string(),
+        }))
+        .unwrap();
+    let v1: serde_json::Value = serde_json::from_str(&r1).unwrap();
+    assert_eq!(v1["was_already_locked"], false);
+    // Second lock — was_already_locked=true
+    let r2 = s
+        .lock_user_persona_impl(Parameters(LockUserPersonaRequest {
+            user_id: "alice".to_string(),
+        }))
+        .unwrap();
+    let v2: serde_json::Value = serde_json::from_str(&r2).unwrap();
+    assert_eq!(v2["was_already_locked"], true);
+}
+
+#[test]
+fn test_mup_lock_without_persona_errors() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    let err = s
+        .lock_user_persona_impl(Parameters(LockUserPersonaRequest {
+            user_id: "ghost".to_string(),
+        }))
+        .unwrap_err();
+    assert!(err.message.contains("persona.json 不存在"));
+}
+
+#[test]
+fn test_mup_update_user_state_writes_live_and_history() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    // user dir doesn't need persona for state-only ops
+    s.update_user_state_impl(Parameters(UpdateUserStateRequest {
+        user_id: "alice".to_string(),
+        state_json: r#"{"learned_basketball":true}"#.to_string(),
+        overwrite: false,
+        idempotency_key: None,
+    }))
+    .unwrap();
+    let live: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(tmp.path().join("users/alice/state/live.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(live["learned_basketball"], true);
+    // History snapshot appended
+    let hist = std::fs::read_to_string(tmp.path().join("users/alice/state/history.jsonl")).unwrap();
+    assert!(hist.contains("learned_basketball"));
+}
+
+#[test]
+fn test_mup_update_user_state_merge_preserves_old_keys() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    s.update_user_state_impl(Parameters(UpdateUserStateRequest {
+        user_id: "alice".to_string(),
+        state_json: r#"{"a":1}"#.to_string(),
+        overwrite: false,
+        idempotency_key: None,
+    }))
+    .unwrap();
+    s.update_user_state_impl(Parameters(UpdateUserStateRequest {
+        user_id: "alice".to_string(),
+        state_json: r#"{"b":2}"#.to_string(),
+        overwrite: false,
+        idempotency_key: None,
+    }))
+    .unwrap();
+    let live: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(tmp.path().join("users/alice/state/live.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(live["a"], 1);
+    assert_eq!(live["b"], 2);
+}
+
+#[test]
+fn test_mup_get_user_persona_returns_drift_keys() {
+    // The killer use case: 元设定 says "不会打篮球", drift says "学会了打篮球".
+    // Server returns both + lists the drift keys; Agent reasons about conflict.
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+
+    s.import_user_persona_impl(Parameters(ImportUserPersonaRequest {
+        user_id: "alice".to_string(),
+        persona_json: r#"{"name":"Alice","skills":["reading"]}"#.to_string(),
+        lock: true,
+        idempotency_key: None,
+    }))
+    .unwrap();
+
+    s.update_user_state_impl(Parameters(UpdateUserStateRequest {
+        user_id: "alice".to_string(),
+        state_json: r#"{"learned_basketball":true,"mood":"excited"}"#.to_string(),
+        overwrite: false,
+        idempotency_key: None,
+    }))
+    .unwrap();
+
+    let resp = s
+        .get_user_persona_impl(Parameters(GetUserPersonaRequest {
+            user_id: "alice".to_string(),
+        }))
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    assert_eq!(v["user_id"], "alice");
+    assert_eq!(v["persona"]["name"], "Alice");
+    assert_eq!(v["locked"], true);
+    assert_eq!(v["current_state"]["learned_basketball"], true);
+    let drift: Vec<&str> = v["drift_keys"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s.as_str().unwrap())
+        .collect();
+    assert!(drift.contains(&"learned_basketball"));
+    assert!(drift.contains(&"mood"));
+    // `name` and `skills` exist in persona, so NOT in drift_keys
+    assert!(!drift.contains(&"name"));
+    assert!(!drift.contains(&"skills"));
+}
+
+#[test]
+fn test_mup_get_user_persona_missing_returns_nulls() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    let resp = s
+        .get_user_persona_impl(Parameters(GetUserPersonaRequest {
+            user_id: "ghost".to_string(),
+        }))
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    assert_eq!(v["persona"], serde_json::Value::Null);
+    assert_eq!(v["current_state"], serde_json::Value::Null);
+    assert_eq!(v["locked"], false);
+}
+
+#[test]
+fn test_mup_user_state_history_newest_first() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    for i in 0..3 {
+        s.update_user_state_impl(Parameters(UpdateUserStateRequest {
+            user_id: "alice".to_string(),
+            state_json: format!(r#"{{"step":{}}}"#, i),
+            overwrite: false,
+            idempotency_key: None,
+        }))
+        .unwrap();
+    }
+    let resp = s
+        .get_user_state_history_impl(Parameters(GetUserStateHistoryRequest {
+            user_id: "alice".to_string(),
+            n: 10,
+        }))
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    let entries = v["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 3);
+    // Newest first: last write (step=2) is at index 0
+    assert_eq!(entries[0]["state"]["step"], 2);
+}
+
 // ── CLI tool dispatcher (`airp-core tool <name>`) ─────────────────────────
 
 #[test]

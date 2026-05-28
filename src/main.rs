@@ -235,6 +235,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match format.as_str() {
                 "summary" => {
                     let chars = report["characters"].as_array().map(|a| a.len()).unwrap_or(0);
+                    let users_n = report["users"].as_array().map(|a| a.len()).unwrap_or(0);
                     let presets = report["presets"].as_array().map(|a| a.len()).unwrap_or(0);
                     let scenes = report["scenes"].as_array().map(|a| a.len()).unwrap_or(0);
                     println!("AIRP-Core diagnose (v{})", env!("CARGO_PKG_VERSION"));
@@ -242,18 +243,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("  data_root_exists : {}", report["data_root_exists"]);
                     println!("  settings.present : {}", report["settings"]["present"]);
                     println!("  characters       : {}", chars);
+                    println!("  users            : {}", users_n);
                     println!("  presets          : {}", presets);
                     println!("  scenes           : {}", scenes);
                     if let Some(arr) = report["characters"].as_array() {
                         for c in arr {
                             println!(
-                                "    - {} : card={} lore={} chat={} vols={} cp={}",
+                                "    [char] {} : card={} lore={} chat={} vols={} cp={}",
                                 c["id"].as_str().unwrap_or("?"),
                                 c["card_present"],
                                 c["lorebook_entries"],
                                 c["chat_log_messages"],
                                 c["volume_count"],
                                 c["current_checkpoint"].as_str().unwrap_or("?"),
+                            );
+                        }
+                    }
+                    if let Some(arr) = report["users"].as_array() {
+                        for u in arr {
+                            println!(
+                                "    [user] {} : persona={} locked={} drift={} hist={}",
+                                u["id"].as_str().unwrap_or("?"),
+                                u["persona_present"],
+                                u["locked"],
+                                u["drift_key_count"],
+                                u["state_history_lines"],
+                            );
+                        }
+                    }
+                    if let Some(arr) = report["scenes"].as_array() {
+                        for s in arr {
+                            println!(
+                                "    [scene] {} : chars={}",
+                                s["id"].as_str().unwrap_or("?"),
+                                s["characters_count"],
                             );
                         }
                     }

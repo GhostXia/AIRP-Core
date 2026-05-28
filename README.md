@@ -41,9 +41,9 @@
 
 | 项 | 值 |
 |---|---|
-| 测试 | **376** passing（lib 371 + integration 5），1 ignored |
+| 测试 | **387** passing（lib 382 + integration 5），1 ignored |
 | Clippy `--lib --bins -- -D warnings` | **0** warning |
-| MCP 工具 | 16（全部带 MCP ToolAnnotations 元数据） |
+| MCP 工具 | 21（全部带 MCP ToolAnnotations 元数据；含 5 个 user persona 工具） |
 | MCP 资源 | 9 个静态 + 模板 |
 | MCP Prompts | 5 |
 | 已完成里程碑 | M0–M3 / M_CF / M_PR (PR-1~10) / M_MS / M_MCP / M_DX / M_LS / M_CA / **M_HARDEN (13/13)** |
@@ -143,6 +143,16 @@ airp-core diagnose --character-id alice   # 聚焦单个角色
 | `list_preset_regex_scripts` | 列预设正则脚本 | readonly |
 | `remove_preset_regex_script` | 删一条正则脚本 | destructive |
 | `set_preset_regex_enabled` | 启/禁用正则脚本 | mutate / idempotent |
+| `import_user_persona` | 导入用户人设元设定（可封存） | mutate / idempotent |
+| `lock_user_persona` | 封存用户 persona（写 persona.lock） | mutate / idempotent |
+| `get_user_persona` | 读 base + state + drift_keys | readonly |
+| `update_user_state` | 更新用户变量设定（drift overlay） | mutate |
+| `get_user_state_history` | 用户状态历史快照 | readonly |
+
+**User persona 双层模型（M_UP）：**
+- **元设定 / Base**（`users/{id}/persona.json`）：初始人设，可通过 `persona.lock` 封存为只读契约
+- **变量设定 / Drift**（`users/{id}/state/live.json`）：剧情推进中累积的变化（学会新技能、心情变化等）
+- Server **不判定语义冲突**（戒律 1）— `get_user_persona` 返回完整 base + drift + drift_keys，Agent 自行推断「不会打篮球（base）vs 学会了打篮球（drift）」这类冲突
 
 详细 schema 见 `docs/mcp.md`。
 

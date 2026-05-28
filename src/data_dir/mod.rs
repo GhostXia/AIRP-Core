@@ -13,6 +13,9 @@ pub use paths::{
     // M_MS: scene paths
     list_scenes, scene_dir, scene_history_dir, scene_json_path, scene_memory_dir,
     scene_world_dir, scene_world_lorebook_path,
+    // M_UP: user persona paths
+    list_users, user_dir, user_persona_lock_path, user_persona_path,
+    user_state_dir, user_state_history_path, user_state_live_path,
 };
 pub(crate) use paths::{
     char_card_dir, char_gating_dir, char_greetings_dir, char_world_dir, char_world_lorebook_path,

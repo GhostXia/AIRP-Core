@@ -30,6 +30,9 @@ pub use tools::{
     RollbackMessagesRequest, SetPresetRegexEnabledRequest, PingRequest,
     StartSessionRequest, UpdateStateRequest,
     WriteCharacterArtifactRequest, WritePresetArtifactRequest,
+    // M_UP: User Persona
+    GetUserPersonaRequest, GetUserStateHistoryRequest, ImportUserPersonaRequest,
+    LockUserPersonaRequest, UpdateUserStateRequest,
 };
 pub use transport_http::mcp_http_router;
 
@@ -140,6 +143,12 @@ impl AirpMcpServer {
             "set_preset_regex_enabled" => to_err!(self.set_preset_regex_enabled_impl(Parameters(parse_args!(SetPresetRegexEnabledRequest)))),
             "write_preset_artifact" => to_err!(self.write_preset_artifact_impl(Parameters(parse_args!(WritePresetArtifactRequest)))),
             "write_character_artifact" => to_err!(self.write_character_artifact_impl(Parameters(parse_args!(WriteCharacterArtifactRequest)))),
+            // M_UP: user persona
+            "import_user_persona" => to_err!(self.import_user_persona_impl(Parameters(parse_args!(ImportUserPersonaRequest)))),
+            "lock_user_persona" => to_err!(self.lock_user_persona_impl(Parameters(parse_args!(LockUserPersonaRequest)))),
+            "get_user_persona" => to_err!(self.get_user_persona_impl(Parameters(parse_args!(GetUserPersonaRequest)))),
+            "update_user_state" => to_err!(self.update_user_state_impl(Parameters(parse_args!(UpdateUserStateRequest)))),
+            "get_user_state_history" => to_err!(self.get_user_state_history_impl(Parameters(parse_args!(GetUserStateHistoryRequest)))),
             other => Err(format!(
                 "unknown tool: `{}` (use `airp-core list-tools --format summary` to enumerate)",
                 other
@@ -368,6 +377,79 @@ impl AirpMcpServer {
         params: Parameters<GetStateHistoryRequest>,
     ) -> Result<String, ErrorData> {
         self.get_state_history_impl(params)
+    }
+
+    /// M_UP-1：导入用户人设（元设定）。已封存的 persona 拒绝重写。
+    #[tool(
+        description = "导入用户 persona（元设定 / immutable base）。persona_json 必须为合法 JSON 对象且含 `name`。\
+                       若已存在 persona.lock 则拒绝。lock=true 时导入后立即封存。\
+                       返回 {user_id, name, locked, persona_path} JSON。",
+        annotations(title = "import_user_persona", read_only_hint = false, destructive_hint = false, idempotent_hint = true, open_world_hint = false)
+    )]
+    fn import_user_persona(
+        &self,
+        params: Parameters<ImportUserPersonaRequest>,
+    ) -> Result<String, ErrorData> {
+        self.import_user_persona_impl(params)
+    }
+
+    /// M_UP-2：封存用户 persona（写 persona.lock，禁止后续 base 修改）。
+    #[tool(
+        description = "封存 users/{user_id}/persona.json（创建 persona.lock）。\
+                       封存后 import_user_persona 将拒绝写入；update_user_state 不受影响。\
+                       返回 {user_id, locked, was_already_locked} JSON。",
+        annotations(title = "lock_user_persona", read_only_hint = false, destructive_hint = false, idempotent_hint = true, open_world_hint = false)
+    )]
+    fn lock_user_persona(
+        &self,
+        params: Parameters<LockUserPersonaRequest>,
+    ) -> Result<String, ErrorData> {
+        self.lock_user_persona_impl(params)
+    }
+
+    /// M_UP-3：读取用户 persona + 当前 state + drift_keys。
+    #[tool(
+        description = "返回 {user_id, persona, locked, current_state, drift_keys}。\
+                       drift_keys 为 current_state 顶层键中不在 persona 顶层的部分，供 Agent 比对\
+                       元设定（persona）与变量设定（current_state）的偏移。\
+                       Server 不做语义冲突判定 — Agent 读全量数据后自行推断。",
+        annotations(title = "get_user_persona", read_only_hint = true, idempotent_hint = true, open_world_hint = false)
+    )]
+    fn get_user_persona(
+        &self,
+        params: Parameters<GetUserPersonaRequest>,
+    ) -> Result<String, ErrorData> {
+        self.get_user_persona_impl(params)
+    }
+
+    /// M_UP-4：更新用户 state（变量设定）。merge 或 overwrite。
+    #[tool(
+        description = "更新用户 state（变量设定 / drift overlay）。\
+                       overwrite=false（默认）合并到现有 state；overwrite=true 全量替换。\
+                       同步追加快照到 state/history.jsonl。\
+                       **不修改 persona.json**。\
+                       返回 {user_id, overwrite, fields_updated, state} JSON。",
+        annotations(title = "update_user_state", read_only_hint = false, destructive_hint = false, idempotent_hint = false, open_world_hint = false)
+    )]
+    fn update_user_state(
+        &self,
+        params: Parameters<UpdateUserStateRequest>,
+    ) -> Result<String, ErrorData> {
+        self.update_user_state_impl(params)
+    }
+
+    /// M_UP-5：读取用户 state 历史快照。
+    #[tool(
+        description = "读取 users/{user_id}/state/history.jsonl 中最近 N 条快照（默认 10，newest-first）。\
+                       每条快照含 ts（ISO-8601 时间戳）+ state 字段。\
+                       文件不存在时返回空数组。",
+        annotations(title = "get_user_state_history", read_only_hint = true, idempotent_hint = true, open_world_hint = false)
+    )]
+    fn get_user_state_history(
+        &self,
+        params: Parameters<GetUserStateHistoryRequest>,
+    ) -> Result<String, ErrorData> {
+        self.get_user_state_history_impl(params)
     }
 }
 
