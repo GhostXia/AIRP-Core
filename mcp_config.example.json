@@ -1,0 +1,35 @@
+{
+  "_comment": "AIRP MCP Server 配置模板 — 适用于 Claude Code / Claude Desktop / Cursor 等 MCP-aware 客户端。",
+  "_usage": {
+    "Claude Code": "将 mcpServers 块复制到 ~/.claude/settings.json 的 mcpServers 字段（或 .claude/settings.json 项目级配置）",
+    "Claude Desktop": "将 mcpServers 块复制到 claude_desktop_config.json"
+  },
+
+  "mcpServers": {
+    "airp": {
+      "_comment": "stdio transport — Claude Code 子进程启动 airp-core，通过 stdin/stdout 通信",
+      "command": "D:\\AIRPCLI\\target\\x86_64-pc-windows-gnu\\release\\airp-core.exe",
+      "args": ["mcp", "--data-dir", "D:\\AIRPCLI\\data"],
+      "env": {
+        "AIRP_LOG": "warn"
+      }
+    }
+  },
+
+  "_notes": [
+    "将上面的 command 路径替换为实际二进制位置（cargo build --release 输出）",
+    "data-dir 默认为 ./data（相对于二进制工作目录）；可省略 --data-dir 改用 AIRP_DATA_DIR 环境变量",
+    "MCP HTTP transport（Streamable HTTP）运行于 daemon 模式下：POST /mcp/v1，需先 cargo run -- daemon --port 8000",
+    "MCP Inspector 测试：npx @modelcontextprotocol/inspector airp-core.exe mcp --data-dir ./data",
+
+    "全部 16 个 tools：ping / import_card / import_preset / apply_lorebook / start_session / get_recent_context / append_message / update_state / rollback_messages / list_sessions / get_state_history / list_preset_regex_scripts / remove_preset_regex_script / set_preset_regex_enabled / write_preset_artifact / write_character_artifact",
+
+    "RP 工作流（MCP-Native）：import_card → start_session → loop{ get_recent_context → [LLM] → append_message(user) → append_message(assistant) → update_state }",
+
+    "静态 resources：airp://characters（角色列表）/ airp://presets（预设列表）",
+    "模板 resources：airp://characters/{id}/card | world/lorebook | history | artifacts | state/live",
+    "预设 resources：airp://presets/{id}/raw | artifacts | regex",
+
+    "prompts：build_system_prompt / filter_text / state_update_instruction / analyze_character_card / analyze_preset"
+  ]
+}

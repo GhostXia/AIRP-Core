@@ -1,0 +1,11 @@
+[build]
+target = "x86_64-pc-windows-gnu"
+
+[target.x86_64-pc-windows-gnu]
+linker = "D:\\msys64\\mingw64\\bin\\x86_64-w64-mingw32-gcc.exe"
+
+# Build scripts run on the host (MSVC) — point them at the GNU linker too
+# via RUSTFLAGS. We use a fake target-feature trick to pass the GNU linker
+# for host-target build scripts.
+[host]
+linker = "D:\\msys64\\mingw64\\bin\\x86_64-w64-mingw32-gcc.exe"

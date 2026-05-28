@@ -1,0 +1,47 @@
+[package]
+name = "airp-core"
+version = "0.1.0"
+edition = "2021"
+authors = ["GhostXia"]
+description = "AIRP-Core (Full) — RP data substrate with MCP server + SSE/HTTP compatibility layer"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/GhostXia/AIRP-Core"
+homepage = "https://github.com/GhostXia/AIRP-Core"
+readme = "README.md"
+
+[dependencies]
+tokio = { version = "1.38", features = ["rt-multi-thread", "macros", "net", "sync", "io-util", "time", "fs"] }
+axum = { version = "0.7", features = ["macros"] }
+tower-http = { version = "0.5", features = ["cors"] }
+tower_governor = "0.4"
+reqwest = { version = "0.12", features = ["json", "stream"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+clap = { version = "4.5", features = ["derive"] }
+base64 = "0.22"
+futures-util = "0.3"
+regex = "1.10"
+async-stream = "0.3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+bytes = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.0", features = ["v4"] }
+once_cell = "1.20"
+thiserror = "1.0"
+# 6.0p：Aho-Corasick 自动机替代关键词 substring loop。
+# lorebook + volume_inject 关键词扫描从 O(entries × keys × text) → O(text)。
+aho-corasick = "1"
+# DX-5: SHA-256 for sync manifest
+sha2 = "0.10"
+# M_MCP：Rust 官方 MCP SDK（Model Context Protocol）
+# stdio + HTTP/SSE transport；schemars 派生 JSON schema 用于工具参数。
+rmcp = { version = "1.7", features = ["server", "transport-io", "macros", "transport-streamable-http-server", "transport-streamable-http-server-session"] }
+schemars = "0.8"
+
+[dev-dependencies]
+tempfile = "3.0"
+proptest = "1.5"
+wiremock = "0.6"
+tokio = { version = "1.38", features = ["macros", "rt-multi-thread", "time"] }
+tower = { version = "0.5", features = ["util"] }

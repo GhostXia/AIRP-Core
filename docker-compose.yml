@@ -1,0 +1,24 @@
+services:
+  airp:
+    build: .
+    image: airp-core:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persistent data: characters, presets, sessions, volumes, settings
+      - ./data:/app/data
+    environment:
+      # Upstream LLM endpoint (OpenAI-compatible)
+      AIRP_ENDPOINT: "${AIRP_ENDPOINT:-https://api.openai.com/v1/chat/completions}"
+      AIRP_API_KEY: "${AIRP_API_KEY}"
+      AIRP_MODEL: "${AIRP_MODEL:-gpt-4o}"
+      # DX-2: Set to a random secret to enable auth on /v1/* endpoints.
+      # Leave empty (default) for no auth (local/trusted network only).
+      AIRP_ACCESS_KEY: "${AIRP_ACCESS_KEY:-}"
+      AIRP_LOG: "${AIRP_LOG:-info}"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/app/airp-core", "--help"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
