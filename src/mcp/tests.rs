@@ -1306,6 +1306,97 @@ fn test_ds11_get_state_history_invalid_id_rejected() {
     assert!(err.message.contains("非法 character_id"));
 }
 
+// ── CLI tool dispatcher (`airp-core tool <name>`) ─────────────────────────
+
+#[test]
+fn test_cli_dispatch_ping_works_with_empty_json() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    let result = s.call_tool_sync("ping", "{}").unwrap();
+    assert!(
+        result.contains("AIRP MCP Server"),
+        "ping output should mention server: {}",
+        result
+    );
+}
+
+#[test]
+fn test_cli_dispatch_unknown_tool_errors_cleanly() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    let err = s.call_tool_sync("does_not_exist", "{}").unwrap_err();
+    assert!(
+        err.contains("unknown tool"),
+        "unknown tool error should mention name: {}",
+        err
+    );
+    assert!(
+        err.contains("does_not_exist"),
+        "unknown tool error should echo bad name: {}",
+        err
+    );
+}
+
+#[test]
+fn test_cli_dispatch_malformed_json_errors_with_tool_name() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    let err = s.call_tool_sync("import_card", "{not valid json").unwrap_err();
+    assert!(
+        err.contains("import_card"),
+        "parse error should echo tool name: {}",
+        err
+    );
+}
+
+#[test]
+fn test_cli_dispatch_real_workflow_round_trip() {
+    // Exercises the most common agent-automation flow end to end through the
+    // CLI dispatcher: import a card, append a user message, fetch context.
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+
+    // 1. import_card
+    let card_json = serde_json::json!({
+        "spec": "chara_card_v2",
+        "data": {
+            "name": "alice",
+            "description": "test",
+            "personality": "calm",
+            "first_mes": "hi"
+        }
+    });
+    let import_args = serde_json::json!({
+        "character_id": "alice",
+        "card_json": card_json.to_string(),
+    })
+    .to_string();
+    let r1 = s.call_tool_sync("import_card", &import_args).unwrap();
+    assert!(r1.contains("alice") || r1.contains("character_id"));
+
+    // 2. append_message
+    let append_args = serde_json::json!({
+        "character_id": "alice",
+        "role": "user",
+        "content": "hello"
+    })
+    .to_string();
+    let r2 = s.call_tool_sync("append_message", &append_args).unwrap();
+    let v2: serde_json::Value = serde_json::from_str(&r2).unwrap();
+    assert_eq!(v2["total_messages"], 1);
+
+    // 3. get_recent_context
+    let ctx_args = serde_json::json!({
+        "character_id": "alice",
+        "n": 10
+    })
+    .to_string();
+    let r3 = s.call_tool_sync("get_recent_context", &ctx_args).unwrap();
+    let v3: serde_json::Value = serde_json::from_str(&r3).unwrap();
+    assert_eq!(v3["total_messages"], 1);
+    assert_eq!(v3["messages"][0]["content"], "hello");
+}
+
 // ── AUDIT-12: idempotency keys ─────────────────────────────────────────────
 
 #[test]

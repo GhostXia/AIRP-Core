@@ -95,6 +95,57 @@ impl AirpMcpServer {
     pub fn enumerate_tools(&self) -> Vec<rmcp::model::Tool> {
         self.tool_router.list_all()
     }
+
+    /// CLI dispatcher: invoke a single MCP tool synchronously by name and
+    /// return its JSON response as a `String`. Enables shell-driven agent
+    /// automation without spawning the long-running stdio MCP server.
+    ///
+    /// `args_json` is the raw JSON object passed as the tool's `Parameters`.
+    /// Unknown tool names return an error.
+    pub fn call_tool_sync(&self, name: &str, args_json: &str) -> Result<String, String> {
+        use rmcp::handler::server::wrapper::Parameters;
+        use tools::*;
+
+        // Helper: parse args_json into the request struct and short-circuit on
+        // serde errors with a uniform message.
+        macro_rules! parse_args {
+            ($t:ty) => {{
+                serde_json::from_str::<$t>(args_json)
+                    .map_err(|e| format!("parse args for `{}` failed: {}", name, e))?
+            }};
+        }
+        macro_rules! to_err {
+            ($r:expr) => {
+                $r.map_err(|e: rmcp::ErrorData| e.message.to_string())
+            };
+        }
+
+        match name {
+            "ping" => {
+                let req = parse_args!(PingRequest);
+                Ok(self.ping_impl(Parameters(req)))
+            }
+            "import_card" => to_err!(self.import_card_impl(Parameters(parse_args!(ImportCardRequest)))),
+            "import_preset" => to_err!(self.import_preset_impl(Parameters(parse_args!(ImportPresetRequest)))),
+            "apply_lorebook" => to_err!(self.apply_lorebook_impl(Parameters(parse_args!(ApplyLorebookRequest)))),
+            "start_session" => to_err!(self.start_session_impl(Parameters(parse_args!(StartSessionRequest)))),
+            "get_recent_context" => to_err!(self.get_recent_context_impl(Parameters(parse_args!(GetRecentContextRequest)))),
+            "append_message" => to_err!(self.append_message_impl(Parameters(parse_args!(AppendMessageRequest)))),
+            "update_state" => to_err!(self.update_state_impl(Parameters(parse_args!(UpdateStateRequest)))),
+            "rollback_messages" => to_err!(self.rollback_messages_impl(Parameters(parse_args!(RollbackMessagesRequest)))),
+            "list_sessions" => to_err!(self.list_sessions_impl(Parameters(parse_args!(ListSessionsRequest)))),
+            "get_state_history" => to_err!(self.get_state_history_impl(Parameters(parse_args!(GetStateHistoryRequest)))),
+            "list_preset_regex_scripts" => to_err!(self.list_preset_regex_scripts_impl(Parameters(parse_args!(ListPresetRegexScriptsRequest)))),
+            "remove_preset_regex_script" => to_err!(self.remove_preset_regex_script_impl(Parameters(parse_args!(RemovePresetRegexScriptRequest)))),
+            "set_preset_regex_enabled" => to_err!(self.set_preset_regex_enabled_impl(Parameters(parse_args!(SetPresetRegexEnabledRequest)))),
+            "write_preset_artifact" => to_err!(self.write_preset_artifact_impl(Parameters(parse_args!(WritePresetArtifactRequest)))),
+            "write_character_artifact" => to_err!(self.write_character_artifact_impl(Parameters(parse_args!(WriteCharacterArtifactRequest)))),
+            other => Err(format!(
+                "unknown tool: `{}` (use `airp-core list-tools --format summary` to enumerate)",
+                other
+            )),
+        }
+    }
 }
 
 // ── MCP-1/2: Tool wrappers（宏生成的 tool_router() 须在此模块，故 thin wrapper 留在此）──

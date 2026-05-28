@@ -53,6 +53,22 @@ enum Commands {
         #[arg(long, default_value = "json")]
         format: String,
     },
+    /// 一次性调用单个 MCP 工具（同步、不起 server），用于 agent shell 自动化。
+    ///
+    /// 例：
+    ///   airp-core tool ping
+    ///   airp-core tool list_sessions --json '{"character_id":"alice"}'
+    ///   airp-core tool append_message --json '{"character_id":"alice","role":"user","content":"hi"}'
+    Tool {
+        /// 工具名（用 `airp-core list-tools --format summary` 查看可用名）。
+        name: String,
+        /// 工具入参 JSON 对象字符串；缺省 `{}`。
+        #[arg(long, default_value = "{}")]
+        json: String,
+        /// 数据根目录，默认沿用 AIRP_DATA_DIR 或 ./data。
+        #[arg(long)]
+        data_dir: Option<PathBuf>,
+    },
     /// 在终端控制台直接运行单次流式过滤
     Run {
         /// 角色卡：PNG 路径 / JSON 文件路径 / `{...}` 内联 JSON / data/characters/{id} 文件夹名
@@ -185,6 +201,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // (e.g. client closed stdin). Idempotent — no-op if signal already fired.
             signal_task.abort();
             tracing::info!(?quit_reason, "MCP stdio server 已退出");
+        }
+        Commands::Tool { name, json, data_dir } => {
+            // Single-shot MCP tool invocation. No HTTP / stdio server lifetime.
+            let root = data_dir
+                .or_else(|| std::env::var("AIRP_DATA_DIR").ok().map(PathBuf::from))
+                .unwrap_or_else(|| PathBuf::from("data"));
+            airp_core::data_dir::ensure_data_dirs(&root)?;
+            let server = airp_core::mcp::AirpMcpServer::new(root);
+            match server.call_tool_sync(&name, &json) {
+                Ok(out) => println!("{}", out),
+                Err(e) => {
+                    eprintln!("error: {}", e);
+                    std::process::exit(1);
+                }
+            }
         }
         Commands::ListTools { format } => {
             // AUDIT-3: enumerate tools from rmcp ToolRouter so docs can be

@@ -41,7 +41,7 @@
 
 | 项 | 值 |
 |---|---|
-| 测试 | **366** passing（lib 361 + integration 5），1 ignored |
+| 测试 | **370** passing（lib 365 + integration 5），1 ignored |
 | Clippy `--lib --bins -- -D warnings` | **0** warning |
 | MCP 工具 | 16（全部带 MCP ToolAnnotations 元数据） |
 | MCP 资源 | 9 个静态 + 模板 |
@@ -93,6 +93,19 @@ cargo run -- daemon --port 8000
 ```powershell
 cargo run -- run --message "你好" --filters "<thought>[\s\S]*?<\/thought>"
 ```
+
+**4. 一次性 MCP 工具调用（agent shell 自动化 / CI 自检）**
+
+不起 server，单次调用单个 MCP 工具并返回 JSON 到 stdout。
+
+```bash
+airp-core tool ping
+airp-core tool list_sessions --json '{"character_id":"alice"}'
+airp-core tool append_message --json '{"character_id":"alice","role":"user","content":"hi"}'
+airp-core tool get_recent_context --json '{"character_id":"alice","n":10}'
+```
+
+退出码 0 = 成功（结果在 stdout）；退出码 1 = 错误（消息在 stderr）。
 
 便捷脚本：`run_daemon.bat`（增量编译 + 启动）、`run_tests.bat`。
 
