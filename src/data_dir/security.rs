@@ -41,10 +41,7 @@ pub fn safe_resolve_under_data_root(
 /// - 仍拒绝绝对路径、`..` 穿越、空字节。
 ///
 /// 用于 `write_preset_artifact` / `write_character_artifact` 等写新文件场景。
-pub fn safe_resolve_for_write(
-    base_dir: &Path,
-    user_path: &str,
-) -> Result<PathBuf, AirpError> {
+pub fn safe_resolve_for_write(base_dir: &Path, user_path: &str) -> Result<PathBuf, AirpError> {
     let trimmed = user_path.trim();
     if trimmed.is_empty() {
         return Err(AirpError::BadRequest("路径为空".to_string()));
@@ -54,7 +51,10 @@ pub fn safe_resolve_for_write(
         || trimmed.starts_with('\\')
         || (lower.len() >= 2 && lower.as_bytes()[1] == b':');
     if looks_absolute {
-        return Err(AirpError::BadRequest(format!("拒绝绝对路径: {}", user_path)));
+        return Err(AirpError::BadRequest(format!(
+            "拒绝绝对路径: {}",
+            user_path
+        )));
     }
     if trimmed.contains('\0') {
         return Err(AirpError::BadRequest("路径包含空字节".to_string()));
@@ -75,7 +75,10 @@ pub fn safe_resolve_for_write(
             }
             std::path::Component::Normal(s) => stack.push(s.to_owned()),
             _ => {
-                return Err(AirpError::BadRequest(format!("非法路径组件: {}", user_path)))
+                return Err(AirpError::BadRequest(format!(
+                    "非法路径组件: {}",
+                    user_path
+                )))
             }
         }
     }

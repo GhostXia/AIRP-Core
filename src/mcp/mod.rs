@@ -22,25 +22,48 @@ pub mod transport_http;
 
 pub use idempotency::IdempotencyCache;
 
-use prompts::{analyze_character_card_prompt, analyze_preset_prompt, filter_text_prompt, state_update_prompt};
+use prompts::{
+    analyze_character_card_prompt, analyze_preset_prompt, filter_text_prompt, state_update_prompt,
+};
 pub use tools::{
-    AppendMessageRequest, ApplyLorebookRequest, GetRecentContextRequest,
-    GetStateHistoryRequest, ImportCardRequest, ImportPresetRequest,
-    ListPresetRegexScriptsRequest, ListSessionsRequest, RemovePresetRegexScriptRequest,
-    RollbackMessagesRequest, SetPresetRegexEnabledRequest, PingRequest,
-    StartSessionRequest, UpdateStateRequest,
-    WriteCharacterArtifactRequest, WritePresetArtifactRequest,
-    // M_UP: User Persona
-    GetUserPersonaRequest, GetUserStateHistoryRequest, ImportUserPersonaRequest,
-    LockUserPersonaRequest, UpdateUserStateRequest,
-    // P0 read-side parity
-    GetCharacterRequest, GetLiveStateRequest, ListCharactersRequest, ListUsersRequest,
+    // P1: Scene CRUD
+    AddSceneCharacterRequest,
+    AppendMessageRequest,
+    ApplyLorebookRequest,
+    CreateSceneRequest,
     // P1: delete character
     DeleteCharacterRequest,
-    // P1: Scene CRUD
-    AddSceneCharacterRequest, CreateSceneRequest, GetSceneRequest, ListScenesRequest,
+    // P0 read-side parity
+    GetCharacterRequest,
+    GetLiveStateRequest,
+    GetRecentContextRequest,
+    GetSceneRequest,
+    GetStateHistoryRequest,
+    // M_UP: User Persona
+    GetUserPersonaRequest,
+    GetUserStateHistoryRequest,
+    ImportCardRequest,
+    ImportPresetRequest,
+    ImportUserPersonaRequest,
+    ListCharactersRequest,
+    ListPresetRegexScriptsRequest,
+    ListScenesRequest,
+    ListSessionsRequest,
+    ListUsersRequest,
     // P1: Volume management
-    ListVolumesRequest, ReadVolumeRequest, SealVolumeRequest,
+    ListVolumesRequest,
+    LockUserPersonaRequest,
+    PingRequest,
+    ReadVolumeRequest,
+    RemovePresetRegexScriptRequest,
+    RollbackMessagesRequest,
+    SealVolumeRequest,
+    SetPresetRegexEnabledRequest,
+    StartSessionRequest,
+    UpdateStateRequest,
+    UpdateUserStateRequest,
+    WriteCharacterArtifactRequest,
+    WritePresetArtifactRequest,
 };
 pub use transport_http::mcp_http_router;
 
@@ -51,14 +74,10 @@ use rmcp::{
         ListResourceTemplatesResult, ListResourcesResult, PaginatedRequestParams, Prompt,
         PromptArgument, PromptMessage, PromptMessageRole, RawResource, RawResourceTemplate,
         ReadResourceRequestParams, ReadResourceResult, Resource, ResourceTemplate,
-        ServerCapabilities, ServerInfo,
-        SubscribeRequestParams, UnsubscribeRequestParams,
+        ServerCapabilities, ServerInfo, SubscribeRequestParams, UnsubscribeRequestParams,
     },
     service::{Peer, RequestContext},
-    tool, tool_handler, tool_router,
-    ErrorData,
-    RoleServer,
-    ServerHandler,
+    tool, tool_handler, tool_router, ErrorData, RoleServer, ServerHandler,
 };
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -136,42 +155,104 @@ impl AirpMcpServer {
                 let req = parse_args!(PingRequest);
                 Ok(self.ping_impl(Parameters(req)))
             }
-            "import_card" => to_err!(self.import_card_impl(Parameters(parse_args!(ImportCardRequest)))),
-            "import_preset" => to_err!(self.import_preset_impl(Parameters(parse_args!(ImportPresetRequest)))),
-            "apply_lorebook" => to_err!(self.apply_lorebook_impl(Parameters(parse_args!(ApplyLorebookRequest)))),
-            "start_session" => to_err!(self.start_session_impl(Parameters(parse_args!(StartSessionRequest)))),
-            "get_recent_context" => to_err!(self.get_recent_context_impl(Parameters(parse_args!(GetRecentContextRequest)))),
-            "append_message" => to_err!(self.append_message_impl(Parameters(parse_args!(AppendMessageRequest)))),
-            "update_state" => to_err!(self.update_state_impl(Parameters(parse_args!(UpdateStateRequest)))),
-            "rollback_messages" => to_err!(self.rollback_messages_impl(Parameters(parse_args!(RollbackMessagesRequest)))),
-            "list_sessions" => to_err!(self.list_sessions_impl(Parameters(parse_args!(ListSessionsRequest)))),
-            "get_state_history" => to_err!(self.get_state_history_impl(Parameters(parse_args!(GetStateHistoryRequest)))),
-            "list_preset_regex_scripts" => to_err!(self.list_preset_regex_scripts_impl(Parameters(parse_args!(ListPresetRegexScriptsRequest)))),
-            "remove_preset_regex_script" => to_err!(self.remove_preset_regex_script_impl(Parameters(parse_args!(RemovePresetRegexScriptRequest)))),
-            "set_preset_regex_enabled" => to_err!(self.set_preset_regex_enabled_impl(Parameters(parse_args!(SetPresetRegexEnabledRequest)))),
-            "write_preset_artifact" => to_err!(self.write_preset_artifact_impl(Parameters(parse_args!(WritePresetArtifactRequest)))),
-            "write_character_artifact" => to_err!(self.write_character_artifact_impl(Parameters(parse_args!(WriteCharacterArtifactRequest)))),
+            "import_card" => {
+                to_err!(self.import_card_impl(Parameters(parse_args!(ImportCardRequest))))
+            }
+            "import_preset" => {
+                to_err!(self.import_preset_impl(Parameters(parse_args!(ImportPresetRequest))))
+            }
+            "apply_lorebook" => {
+                to_err!(self.apply_lorebook_impl(Parameters(parse_args!(ApplyLorebookRequest))))
+            }
+            "start_session" => {
+                to_err!(self.start_session_impl(Parameters(parse_args!(StartSessionRequest))))
+            }
+            "get_recent_context" => to_err!(
+                self.get_recent_context_impl(Parameters(parse_args!(GetRecentContextRequest)))
+            ),
+            "append_message" => {
+                to_err!(self.append_message_impl(Parameters(parse_args!(AppendMessageRequest))))
+            }
+            "update_state" => {
+                to_err!(self.update_state_impl(Parameters(parse_args!(UpdateStateRequest))))
+            }
+            "rollback_messages" => to_err!(
+                self.rollback_messages_impl(Parameters(parse_args!(RollbackMessagesRequest)))
+            ),
+            "list_sessions" => {
+                to_err!(self.list_sessions_impl(Parameters(parse_args!(ListSessionsRequest))))
+            }
+            "get_state_history" => {
+                to_err!(self.get_state_history_impl(Parameters(parse_args!(GetStateHistoryRequest))))
+            }
+            "list_preset_regex_scripts" => to_err!(self.list_preset_regex_scripts_impl(
+                Parameters(parse_args!(ListPresetRegexScriptsRequest))
+            )),
+            "remove_preset_regex_script" => to_err!(self.remove_preset_regex_script_impl(
+                Parameters(parse_args!(RemovePresetRegexScriptRequest))
+            )),
+            "set_preset_regex_enabled" => to_err!(self.set_preset_regex_enabled_impl(Parameters(
+                parse_args!(SetPresetRegexEnabledRequest)
+            ))),
+            "write_preset_artifact" => to_err!(self
+                .write_preset_artifact_impl(Parameters(parse_args!(WritePresetArtifactRequest)))),
+            "write_character_artifact" => to_err!(self.write_character_artifact_impl(Parameters(
+                parse_args!(WriteCharacterArtifactRequest)
+            ))),
             // M_UP: user persona
-            "import_user_persona" => to_err!(self.import_user_persona_impl(Parameters(parse_args!(ImportUserPersonaRequest)))),
-            "lock_user_persona" => to_err!(self.lock_user_persona_impl(Parameters(parse_args!(LockUserPersonaRequest)))),
-            "get_user_persona" => to_err!(self.get_user_persona_impl(Parameters(parse_args!(GetUserPersonaRequest)))),
-            "update_user_state" => to_err!(self.update_user_state_impl(Parameters(parse_args!(UpdateUserStateRequest)))),
-            "get_user_state_history" => to_err!(self.get_user_state_history_impl(Parameters(parse_args!(GetUserStateHistoryRequest)))),
+            "import_user_persona" => {
+                to_err!(self
+                    .import_user_persona_impl(Parameters(parse_args!(ImportUserPersonaRequest))))
+            }
+            "lock_user_persona" => {
+                to_err!(self.lock_user_persona_impl(Parameters(parse_args!(LockUserPersonaRequest))))
+            }
+            "get_user_persona" => {
+                to_err!(self.get_user_persona_impl(Parameters(parse_args!(GetUserPersonaRequest))))
+            }
+            "update_user_state" => {
+                to_err!(self.update_user_state_impl(Parameters(parse_args!(UpdateUserStateRequest))))
+            }
+            "get_user_state_history" => to_err!(self
+                .get_user_state_history_impl(Parameters(parse_args!(GetUserStateHistoryRequest)))),
             // P0 read-side parity
-            "list_characters" => to_err!(self.list_characters_impl(Parameters(parse_args!(ListCharactersRequest)))),
-            "list_users" => to_err!(self.list_users_impl(Parameters(parse_args!(ListUsersRequest)))),
-            "get_character" => to_err!(self.get_character_impl(Parameters(parse_args!(GetCharacterRequest)))),
-            "get_live_state" => to_err!(self.get_live_state_impl(Parameters(parse_args!(GetLiveStateRequest)))),
-            "delete_character" => to_err!(self.delete_character_impl(Parameters(parse_args!(DeleteCharacterRequest)))),
+            "list_characters" => {
+                to_err!(self.list_characters_impl(Parameters(parse_args!(ListCharactersRequest))))
+            }
+            "list_users" => {
+                to_err!(self.list_users_impl(Parameters(parse_args!(ListUsersRequest))))
+            }
+            "get_character" => {
+                to_err!(self.get_character_impl(Parameters(parse_args!(GetCharacterRequest))))
+            }
+            "get_live_state" => {
+                to_err!(self.get_live_state_impl(Parameters(parse_args!(GetLiveStateRequest))))
+            }
+            "delete_character" => {
+                to_err!(self.delete_character_impl(Parameters(parse_args!(DeleteCharacterRequest))))
+            }
             // P1: scene CRUD
-            "list_scenes" => to_err!(self.list_scenes_impl(Parameters(parse_args!(ListScenesRequest)))),
+            "list_scenes" => {
+                to_err!(self.list_scenes_impl(Parameters(parse_args!(ListScenesRequest))))
+            }
             "get_scene" => to_err!(self.get_scene_impl(Parameters(parse_args!(GetSceneRequest)))),
-            "create_scene" => to_err!(self.create_scene_impl(Parameters(parse_args!(CreateSceneRequest)))),
-            "add_scene_character" => to_err!(self.add_scene_character_impl(Parameters(parse_args!(AddSceneCharacterRequest)))),
+            "create_scene" => {
+                to_err!(self.create_scene_impl(Parameters(parse_args!(CreateSceneRequest))))
+            }
+            "add_scene_character" => {
+                to_err!(self
+                    .add_scene_character_impl(Parameters(parse_args!(AddSceneCharacterRequest))))
+            }
             // P1: volume management
-            "list_volumes" => to_err!(self.list_volumes_impl(Parameters(parse_args!(ListVolumesRequest)))),
-            "read_volume" => to_err!(self.read_volume_impl(Parameters(parse_args!(ReadVolumeRequest)))),
-            "seal_volume" => to_err!(self.seal_volume_impl(Parameters(parse_args!(SealVolumeRequest)))),
+            "list_volumes" => {
+                to_err!(self.list_volumes_impl(Parameters(parse_args!(ListVolumesRequest))))
+            }
+            "read_volume" => {
+                to_err!(self.read_volume_impl(Parameters(parse_args!(ReadVolumeRequest))))
+            }
+            "seal_volume" => {
+                to_err!(self.seal_volume_impl(Parameters(parse_args!(SealVolumeRequest))))
+            }
             other => Err(format!(
                 "unknown tool: `{}` (use `airp-core list-tools --format summary` to enumerate)",
                 other
@@ -187,7 +268,12 @@ impl AirpMcpServer {
     /// MCP-1：健康检查。返回版本号 + 数据根目录路径。
     #[tool(
         description = "AIRP MCP 健康检查。返回版本号与数据根目录。",
-        annotations(title = "ping", read_only_hint = true, idempotent_hint = true, open_world_hint = false)
+        annotations(
+            title = "ping",
+            read_only_hint = true,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     fn ping(&self, params: Parameters<PingRequest>) -> String {
         self.ping_impl(params)
@@ -197,7 +283,13 @@ impl AirpMcpServer {
     #[tool(
         description = "导入 SillyTavern V2 角色卡。传 card_json (JSON 字符串) 或 card_png_base64 (PNG base64)。\
                        自动解包 greetings + world/lorebook.json。返回 {character_id, card_format, lorebook_entries, greetings_count}。",
-        annotations(title = "import_card", read_only_hint = false, destructive_hint = false, idempotent_hint = true, open_world_hint = false)
+        annotations(
+            title = "import_card",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     fn import_card(&self, params: Parameters<ImportCardRequest>) -> Result<String, ErrorData> {
         self.import_card_impl(params)
@@ -207,7 +299,12 @@ impl AirpMcpServer {
     #[tool(
         description = "扫描文本中的 lorebook 关键词，返回触发的条目内容（用于注入 LLM context）。\
                        依赖角色已导入并具备 world/lorebook.json。",
-        annotations(title = "apply_lorebook", read_only_hint = true, idempotent_hint = true, open_world_hint = false)
+        annotations(
+            title = "apply_lorebook",
+            read_only_hint = true,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     fn apply_lorebook(
         &self,
@@ -220,7 +317,13 @@ impl AirpMcpServer {
     #[tool(
         description = "启动 RP 会话。返回 {system_prompt, greetings, session_dir} JSON。\
                        Client 拿到 system_prompt 后自行调 LLM，再用 append_message 记录对话。",
-        annotations(title = "start_session", read_only_hint = false, destructive_hint = false, idempotent_hint = false, open_world_hint = false)
+        annotations(
+            title = "start_session",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
     )]
     fn start_session(&self, params: Parameters<StartSessionRequest>) -> Result<String, ErrorData> {
         self.start_session_impl(params)
@@ -231,7 +334,12 @@ impl AirpMcpServer {
         description = "读取角色历史对话最近 N 条消息（默认 10）。\
                        返回 {character_id, total_messages, returned, messages} JSON。\
                        messages 数组元素含 {role, content}（role: user/assistant/system）。",
-        annotations(title = "get_recent_context", read_only_hint = true, idempotent_hint = true, open_world_hint = false)
+        annotations(
+            title = "get_recent_context",
+            read_only_hint = true,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     fn get_recent_context(
         &self,
@@ -245,7 +353,13 @@ impl AirpMcpServer {
         description = "向角色 ChatLog 追加一条消息（role: user/assistant/system）。\
                        每次 LLM 回复后调此工具将消息写入 history/chat_log.jsonl（O(1) append）。\
                        返回 {character_id, role, total_messages} JSON。",
-        annotations(title = "append_message", read_only_hint = false, destructive_hint = false, idempotent_hint = false, open_world_hint = false)
+        annotations(
+            title = "append_message",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
     )]
     fn append_message(
         &self,
@@ -261,12 +375,15 @@ impl AirpMcpServer {
                        overwrite=false（默认）合并到现有状态；overwrite=true 全量替换。\
                        同步追加快照到 state/history.jsonl。\
                        返回 {character_id, overwrite, fields_updated, state} JSON。",
-        annotations(title = "update_state", read_only_hint = false, destructive_hint = false, idempotent_hint = false, open_world_hint = false)
+        annotations(
+            title = "update_state",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
     )]
-    fn update_state(
-        &self,
-        params: Parameters<UpdateStateRequest>,
-    ) -> Result<String, ErrorData> {
+    fn update_state(&self, params: Parameters<UpdateStateRequest>) -> Result<String, ErrorData> {
         self.update_state_impl(params)
     }
 
@@ -276,7 +393,13 @@ impl AirpMcpServer {
         description = "导入 SillyTavern 预设 JSON。写入 presets/{preset_id}/preset.json。\
                        成功后可通过 airp://presets/{id}/raw 读取原文，write_preset_artifact 写入产物。\
                        返回 {preset_id, path, bytes_written} JSON。",
-        annotations(title = "import_preset", read_only_hint = false, destructive_hint = false, idempotent_hint = true, open_world_hint = false)
+        annotations(
+            title = "import_preset",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     fn import_preset(&self, params: Parameters<ImportPresetRequest>) -> Result<String, ErrorData> {
         self.import_preset_impl(params)
@@ -289,7 +412,13 @@ impl AirpMcpServer {
                        artifact_path 为相对路径（如 regex/display_layer.json），\
                        受限于 presets/{preset_id}/ 目录（路径穿越防护）。\
                        返回 {preset_id, artifact_path, bytes_written} JSON。",
-        annotations(title = "write_preset_artifact", read_only_hint = false, destructive_hint = false, idempotent_hint = true, open_world_hint = false)
+        annotations(
+            title = "write_preset_artifact",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     fn write_preset_artifact(
         &self,
@@ -303,7 +432,12 @@ impl AirpMcpServer {
         description = "列出预设 presets/{preset_id}/regex/ 下的所有正则脚本文件及其字段。\
                        返回 JSON 数组，每条含 _filename / scriptName / findRegex / disabled 等字段。\
                        目录不存在时返回空数组 []。",
-        annotations(title = "list_preset_regex_scripts", read_only_hint = true, idempotent_hint = true, open_world_hint = false)
+        annotations(
+            title = "list_preset_regex_scripts",
+            read_only_hint = true,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     fn list_preset_regex_scripts(
         &self,
@@ -317,7 +451,13 @@ impl AirpMcpServer {
         description = "删除 presets/{preset_id}/regex/{filename} 脚本文件。\
                        filename 仅限叶文件名（如 hide_thoughts.json），不允许路径分隔符或 `..`。\
                        文件不存在时返回错误；成功返回 {preset_id, filename, removed: true}。",
-        annotations(title = "remove_preset_regex_script", read_only_hint = false, destructive_hint = true, idempotent_hint = false, open_world_hint = false)
+        annotations(
+            title = "remove_preset_regex_script",
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
     )]
     fn remove_preset_regex_script(
         &self,
@@ -331,7 +471,13 @@ impl AirpMcpServer {
         description = "启用（enabled=true）或禁用（enabled=false）一条正则脚本。\
                        读取 presets/{preset_id}/regex/{filename}，修改 disabled 字段后写回。\
                        支持单对象及数组格式。返回 {preset_id, filename, enabled, disabled}。",
-        annotations(title = "set_preset_regex_enabled", read_only_hint = false, destructive_hint = false, idempotent_hint = true, open_world_hint = false)
+        annotations(
+            title = "set_preset_regex_enabled",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     fn set_preset_regex_enabled(
         &self,
@@ -349,7 +495,13 @@ impl AirpMcpServer {
                        artifact_path 为相对路径（如 analysis/profile.md），\
                        受限于 characters/{character_id}/ 目录（路径穿越防护）。\
                        返回 {character_id, artifact_path, bytes_written} JSON。",
-        annotations(title = "write_character_artifact", read_only_hint = false, destructive_hint = false, idempotent_hint = true, open_world_hint = false)
+        annotations(
+            title = "write_character_artifact",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     fn write_character_artifact(
         &self,
@@ -364,7 +516,13 @@ impl AirpMcpServer {
                        用于撤销错误追加、重新生成上一轮对话。\
                        n 自动 clamp 到 [1, 1000]，超出总消息数时清空全部。\
                        返回 {character_id, requested, removed, total_messages} JSON。",
-        annotations(title = "rollback_messages", read_only_hint = false, destructive_hint = true, idempotent_hint = false, open_world_hint = false)
+        annotations(
+            title = "rollback_messages",
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
     )]
     fn rollback_messages(
         &self,
@@ -379,12 +537,14 @@ impl AirpMcpServer {
                        不含 legacy 默认 session（memory/ 下的卷系统）。\
                        返回 {character_id, sessions: [...], count} JSON。\
                        可配合 start_session(session_id=...) 切换 session。",
-        annotations(title = "list_sessions", read_only_hint = true, idempotent_hint = true, open_world_hint = false)
+        annotations(
+            title = "list_sessions",
+            read_only_hint = true,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
-    fn list_sessions(
-        &self,
-        params: Parameters<ListSessionsRequest>,
-    ) -> Result<String, ErrorData> {
+    fn list_sessions(&self, params: Parameters<ListSessionsRequest>) -> Result<String, ErrorData> {
         self.list_sessions_impl(params)
     }
 
@@ -393,7 +553,12 @@ impl AirpMcpServer {
         description = "读取角色 state/history.jsonl 中最近 N 条状态快照（默认 10，newest-first）。\
                        每条快照含 ts（ISO-8601 时间戳）+ 状态字段（hp/mp/location 等）。\
                        文件不存在时返回空数组。返回 {character_id, entries: [...], count} JSON。",
-        annotations(title = "get_state_history", read_only_hint = true, idempotent_hint = true, open_world_hint = false)
+        annotations(
+            title = "get_state_history",
+            read_only_hint = true,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     fn get_state_history(
         &self,
@@ -407,7 +572,13 @@ impl AirpMcpServer {
         description = "导入用户 persona（元设定 / immutable base）。persona_json 必须为合法 JSON 对象且含 `name`。\
                        若已存在 persona.lock 则拒绝。lock=true 时导入后立即封存。\
                        返回 {user_id, name, locked, persona_path} JSON。",
-        annotations(title = "import_user_persona", read_only_hint = false, destructive_hint = false, idempotent_hint = true, open_world_hint = false)
+        annotations(
+            title = "import_user_persona",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     fn import_user_persona(
         &self,
@@ -421,7 +592,13 @@ impl AirpMcpServer {
         description = "封存 users/{user_id}/persona.json（创建 persona.lock）。\
                        封存后 import_user_persona 将拒绝写入；update_user_state 不受影响。\
                        返回 {user_id, locked, was_already_locked} JSON。",
-        annotations(title = "lock_user_persona", read_only_hint = false, destructive_hint = false, idempotent_hint = true, open_world_hint = false)
+        annotations(
+            title = "lock_user_persona",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     fn lock_user_persona(
         &self,
@@ -436,7 +613,12 @@ impl AirpMcpServer {
                        drift_keys 为 current_state 顶层键中不在 persona 顶层的部分，供 Agent 比对\
                        元设定（persona）与变量设定（current_state）的偏移。\
                        Server 不做语义冲突判定 — Agent 读全量数据后自行推断。",
-        annotations(title = "get_user_persona", read_only_hint = true, idempotent_hint = true, open_world_hint = false)
+        annotations(
+            title = "get_user_persona",
+            read_only_hint = true,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     fn get_user_persona(
         &self,
@@ -452,7 +634,13 @@ impl AirpMcpServer {
                        同步追加快照到 state/history.jsonl。\
                        **不修改 persona.json**。\
                        返回 {user_id, overwrite, fields_updated, state} JSON。",
-        annotations(title = "update_user_state", read_only_hint = false, destructive_hint = false, idempotent_hint = false, open_world_hint = false)
+        annotations(
+            title = "update_user_state",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
     )]
     fn update_user_state(
         &self,
@@ -466,7 +654,12 @@ impl AirpMcpServer {
         description = "读取 users/{user_id}/state/history.jsonl 中最近 N 条快照（默认 10，newest-first）。\
                        每条快照含 ts（ISO-8601 时间戳）+ state 字段。\
                        文件不存在时返回空数组。",
-        annotations(title = "get_user_state_history", read_only_hint = true, idempotent_hint = true, open_world_hint = false)
+        annotations(
+            title = "get_user_state_history",
+            read_only_hint = true,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     fn get_user_state_history(
         &self,
@@ -478,7 +671,12 @@ impl AirpMcpServer {
     /// P0：列出所有角色 ID。
     #[tool(
         description = "列出 data/characters/ 下的所有角色 ID。返回 {count, characters: [...]} JSON。",
-        annotations(title = "list_characters", read_only_hint = true, idempotent_hint = true, open_world_hint = false)
+        annotations(
+            title = "list_characters",
+            read_only_hint = true,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     fn list_characters(
         &self,
@@ -490,12 +688,14 @@ impl AirpMcpServer {
     /// P0：列出所有用户 ID。
     #[tool(
         description = "列出 data/users/ 下的所有用户 ID。返回 {count, users: [...]} JSON。",
-        annotations(title = "list_users", read_only_hint = true, idempotent_hint = true, open_world_hint = false)
+        annotations(
+            title = "list_users",
+            read_only_hint = true,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
-    fn list_users(
-        &self,
-        params: Parameters<ListUsersRequest>,
-    ) -> Result<String, ErrorData> {
+    fn list_users(&self, params: Parameters<ListUsersRequest>) -> Result<String, ErrorData> {
         self.list_users_impl(params)
     }
 
@@ -504,12 +704,14 @@ impl AirpMcpServer {
         description = "返回 {character_id, card_present, card_format, card}。\
                        card_format 取值：v2_folder / v2_legacy / missing。\
                        与 airp://characters/{id}/card 资源等价，但便于 Agent 用 tool call 拿。",
-        annotations(title = "get_character", read_only_hint = true, idempotent_hint = true, open_world_hint = false)
+        annotations(
+            title = "get_character",
+            read_only_hint = true,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
-    fn get_character(
-        &self,
-        params: Parameters<GetCharacterRequest>,
-    ) -> Result<String, ErrorData> {
+    fn get_character(&self, params: Parameters<GetCharacterRequest>) -> Result<String, ErrorData> {
         self.get_character_impl(params)
     }
 
@@ -517,12 +719,14 @@ impl AirpMcpServer {
     #[tool(
         description = "返回 {character_id, present, state}。文件不存在时 state={}，present=false。\
                        与 airp://characters/{id}/state/live 资源等价。",
-        annotations(title = "get_live_state", read_only_hint = true, idempotent_hint = true, open_world_hint = false)
+        annotations(
+            title = "get_live_state",
+            read_only_hint = true,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
-    fn get_live_state(
-        &self,
-        params: Parameters<GetLiveStateRequest>,
-    ) -> Result<String, ErrorData> {
+    fn get_live_state(&self, params: Parameters<GetLiveStateRequest>) -> Result<String, ErrorData> {
         self.get_live_state_impl(params)
     }
 
@@ -531,7 +735,13 @@ impl AirpMcpServer {
         description = "删除 data/characters/{character_id}/ 整目录（递归）。\
                        默认 `confirm=false` 仅 dry-run，返回 would_remove_top_entries 列表。\
                        传 `confirm=true` 才真正删除。**不可撤销**。",
-        annotations(title = "delete_character", read_only_hint = false, destructive_hint = true, idempotent_hint = false, open_world_hint = false)
+        annotations(
+            title = "delete_character",
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
     )]
     fn delete_character(
         &self,
@@ -543,24 +753,28 @@ impl AirpMcpServer {
     /// P1：列出所有场景。
     #[tool(
         description = "列出 data/scenes/ 下的所有场景 ID。返回 {count, scenes: [...]} JSON。",
-        annotations(title = "list_scenes", read_only_hint = true, idempotent_hint = true, open_world_hint = false)
+        annotations(
+            title = "list_scenes",
+            read_only_hint = true,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
-    fn list_scenes(
-        &self,
-        params: Parameters<ListScenesRequest>,
-    ) -> Result<String, ErrorData> {
+    fn list_scenes(&self, params: Parameters<ListScenesRequest>) -> Result<String, ErrorData> {
         self.list_scenes_impl(params)
     }
 
     /// P1：读取场景完整配置。
     #[tool(
         description = "返回 scenes/{scene_id}/scene.json 的完整 SceneConfig（含 characters / narrator_style / lorebook_merge 等）。",
-        annotations(title = "get_scene", read_only_hint = true, idempotent_hint = true, open_world_hint = false)
+        annotations(
+            title = "get_scene",
+            read_only_hint = true,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
-    fn get_scene(
-        &self,
-        params: Parameters<GetSceneRequest>,
-    ) -> Result<String, ErrorData> {
+    fn get_scene(&self, params: Parameters<GetSceneRequest>) -> Result<String, ErrorData> {
         self.get_scene_impl(params)
     }
 
@@ -568,12 +782,15 @@ impl AirpMcpServer {
     #[tool(
         description = "从 scene_json（完整 SceneConfig JSON 字符串）创建或覆盖 scenes/{scene_id}/scene.json。\
                        scene_id 由 JSON 内部 scene_id 字段决定。返回 {scene_id, characters_count, created} JSON。",
-        annotations(title = "create_scene", read_only_hint = false, destructive_hint = false, idempotent_hint = true, open_world_hint = false)
+        annotations(
+            title = "create_scene",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
-    fn create_scene(
-        &self,
-        params: Parameters<CreateSceneRequest>,
-    ) -> Result<String, ErrorData> {
+    fn create_scene(&self, params: Parameters<CreateSceneRequest>) -> Result<String, ErrorData> {
         self.create_scene_impl(params)
     }
 
@@ -582,7 +799,13 @@ impl AirpMcpServer {
         description = "向 scenes/{scene_id}/scene.json 的 characters 数组追加一条 {character_id, role, intro}。\
                        role 取 `primary` 或 `npc`（默认 npc）。intro 为可选自由文本。\
                        返回 {scene_id, character_id, characters_count} JSON。",
-        annotations(title = "add_scene_character", read_only_hint = false, destructive_hint = false, idempotent_hint = false, open_world_hint = false)
+        annotations(
+            title = "add_scene_character",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
     )]
     fn add_scene_character(
         &self,
@@ -595,12 +818,14 @@ impl AirpMcpServer {
     #[tool(
         description = "列出 characters/{character_id}/memory/volumes/ 下已存在的卷编号（升序）。\
                        返回 {character_id, count, volumes: [n1, n2, ...]} JSON。",
-        annotations(title = "list_volumes", read_only_hint = true, idempotent_hint = true, open_world_hint = false)
+        annotations(
+            title = "list_volumes",
+            read_only_hint = true,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
-    fn list_volumes(
-        &self,
-        params: Parameters<ListVolumesRequest>,
-    ) -> Result<String, ErrorData> {
+    fn list_volumes(&self, params: Parameters<ListVolumesRequest>) -> Result<String, ErrorData> {
         self.list_volumes_impl(params)
     }
 
@@ -608,12 +833,14 @@ impl AirpMcpServer {
     #[tool(
         description = "读取 characters/{character_id}/memory/volumes/vol_{number:03}.md 全文。\
                        返回 {character_id, number, content} JSON。",
-        annotations(title = "read_volume", read_only_hint = true, idempotent_hint = true, open_world_hint = false)
+        annotations(
+            title = "read_volume",
+            read_only_hint = true,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
-    fn read_volume(
-        &self,
-        params: Parameters<ReadVolumeRequest>,
-    ) -> Result<String, ErrorData> {
+    fn read_volume(&self, params: Parameters<ReadVolumeRequest>) -> Result<String, ErrorData> {
         self.read_volume_impl(params)
     }
 
@@ -623,12 +850,15 @@ impl AirpMcpServer {
                        清空 current.md。**不调用 LLM** — 若需 summarization，Agent 自行计算后\
                        通过 `content` 参数传入，否则按原文 archive。\
                        返回 {character_id, sealed_number, bytes, used_override_content} JSON。",
-        annotations(title = "seal_volume", read_only_hint = false, destructive_hint = false, idempotent_hint = true, open_world_hint = false)
+        annotations(
+            title = "seal_volume",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
-    fn seal_volume(
-        &self,
-        params: Parameters<SealVolumeRequest>,
-    ) -> Result<String, ErrorData> {
+    fn seal_volume(&self, params: Parameters<SealVolumeRequest>) -> Result<String, ErrorData> {
         self.seal_volume_impl(params)
     }
 }
@@ -677,9 +907,21 @@ impl ServerHandler for AirpMcpServer {
             raw.no_annotation()
         };
         let resources = vec![
-            mk("airp://characters", "AIRP Characters", "已导入角色卡列表（JSON 数组）"),
-            mk("airp://presets", "AIRP Presets", "已导入预设列表（JSON 数组）"),
-            mk("airp://users", "AIRP Users", "已导入用户人设列表（M_UP, JSON 数组）"),
+            mk(
+                "airp://characters",
+                "AIRP Characters",
+                "已导入角色卡列表（JSON 数组）",
+            ),
+            mk(
+                "airp://presets",
+                "AIRP Presets",
+                "已导入预设列表（JSON 数组）",
+            ),
+            mk(
+                "airp://users",
+                "AIRP Users",
+                "已导入用户人设列表（M_UP, JSON 数组）",
+            ),
         ];
         Ok(ListResourcesResult {
             resources,
@@ -904,23 +1146,19 @@ impl ServerHandler for AirpMcpServer {
             }
             "filter_text" => {
                 let text = filter_text_prompt();
-                Ok(
-                    GetPromptResult::new(vec![PromptMessage::new_text(
-                        PromptMessageRole::User,
-                        text,
-                    )])
-                    .with_description("Text filter Agent prompt"),
-                )
+                Ok(GetPromptResult::new(vec![PromptMessage::new_text(
+                    PromptMessageRole::User,
+                    text,
+                )])
+                .with_description("Text filter Agent prompt"))
             }
             "state_update_instruction" => {
                 let text = state_update_prompt();
-                Ok(
-                    GetPromptResult::new(vec![PromptMessage::new_text(
-                        PromptMessageRole::User,
-                        text,
-                    )])
-                    .with_description("State update instruction"),
-                )
+                Ok(GetPromptResult::new(vec![PromptMessage::new_text(
+                    PromptMessageRole::User,
+                    text,
+                )])
+                .with_description("State update instruction"))
             }
             "analyze_character_card" => {
                 let args = request.arguments.unwrap_or_default();
@@ -931,30 +1169,24 @@ impl ServerHandler for AirpMcpServer {
                         ErrorData::invalid_params("缺 character_id".to_string(), None)
                     })?;
                 let text = analyze_character_card_prompt(cid);
-                Ok(
-                    GetPromptResult::new(vec![PromptMessage::new_text(
-                        PromptMessageRole::User,
-                        text,
-                    )])
-                    .with_description(format!("Analyze character card: {}", cid)),
-                )
+                Ok(GetPromptResult::new(vec![PromptMessage::new_text(
+                    PromptMessageRole::User,
+                    text,
+                )])
+                .with_description(format!("Analyze character card: {}", cid)))
             }
             "analyze_preset" => {
                 let args = request.arguments.unwrap_or_default();
                 let pid = args
                     .get("preset_id")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
-                        ErrorData::invalid_params("缺 preset_id".to_string(), None)
-                    })?;
+                    .ok_or_else(|| ErrorData::invalid_params("缺 preset_id".to_string(), None))?;
                 let text = analyze_preset_prompt(pid);
-                Ok(
-                    GetPromptResult::new(vec![PromptMessage::new_text(
-                        PromptMessageRole::User,
-                        text,
-                    )])
-                    .with_description(format!("Analyze preset: {}", pid)),
-                )
+                Ok(GetPromptResult::new(vec![PromptMessage::new_text(
+                    PromptMessageRole::User,
+                    text,
+                )])
+                .with_description(format!("Analyze preset: {}", pid)))
             }
             other => Err(ErrorData::invalid_params(
                 format!("未知 prompt: {}", other),

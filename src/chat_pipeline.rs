@@ -132,14 +132,11 @@ fn prepare_scene_pipeline(
             }
         };
         if include_lb {
-            let lb_path =
-                data_dir::char_world_lorebook_path(&effective_root, &entry.character_id);
+            let lb_path = data_dir::char_world_lorebook_path(&effective_root, &entry.character_id);
             if lb_path.exists() {
                 if let Ok(raw) = fs::read_to_string(&lb_path) {
                     let cleaned = data_dir::strip_utf8_bom(&raw);
-                    if let Ok(lb) =
-                        serde_json::from_str::<crate::orchestrator::Lorebook>(cleaned)
-                    {
+                    if let Ok(lb) = serde_json::from_str::<crate::orchestrator::Lorebook>(cleaned) {
                         lorebooks.push(lb);
                     }
                 }
@@ -210,13 +207,18 @@ fn prepare_scene_pipeline(
         let legacy_path = effective_root
             .join("presets")
             .join(format!("{}.json", pid.as_str()));
-        let p = if new_path.exists() { new_path } else { legacy_path };
+        let p = if new_path.exists() {
+            new_path
+        } else {
+            legacy_path
+        };
         fs::read_to_string(&p)
             .ok()
             .map(|raw| data_dir::strip_utf8_bom(&raw).to_owned())
     });
-    let preset_params: Option<TavernPreset> =
-        preset_json.as_deref().and_then(|j| serde_json::from_str(j).ok());
+    let preset_params: Option<TavernPreset> = preset_json
+        .as_deref()
+        .and_then(|j| serde_json::from_str(j).ok());
 
     let provider_config = Arc::new(ProviderConfig {
         provider: payload
@@ -940,9 +942,7 @@ pub(crate) fn extract_state_content(text: &str) -> (String, Option<serde_json::V
                     }
                     Some(content_len) => {
                         let json_str = &text[after_open..after_open + content_len];
-                        if let Ok(v) =
-                            serde_json::from_str::<serde_json::Value>(json_str.trim())
-                        {
+                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(json_str.trim()) {
                             last_state = Some(v);
                         }
                         pos = after_open + content_len + CLOSE.len();
@@ -984,10 +984,7 @@ async fn persist_live_state(
             tracing::debug!(character_id, "M_LS-1: state/live.json 已更新");
 
             // M_LS-3: append snapshot to state/history.jsonl
-            let history_path = crate::data_dir::char_state_history_path(
-                data_root,
-                character_id,
-            );
+            let history_path = crate::data_dir::char_state_history_path(data_root, character_id);
             let entry = serde_json::json!({
                 "timestamp": chrono::Utc::now().to_rfc3339(),
                 "state": state,
@@ -1004,7 +1001,9 @@ async fn persist_live_state(
                             tracing::warn!(err = %e, character_id, "M_LS-3: 写 history.jsonl 失败");
                         }
                     }
-                    Err(e) => tracing::warn!(err = %e, character_id, "M_LS-3: 打开 history.jsonl 失败"),
+                    Err(e) => {
+                        tracing::warn!(err = %e, character_id, "M_LS-3: 打开 history.jsonl 失败")
+                    }
                 }
             }
         }

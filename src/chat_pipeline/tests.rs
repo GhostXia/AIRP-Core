@@ -315,7 +315,10 @@ mod tests_mls3 {
         assert_eq!(lines.len(), 1);
 
         let entry: serde_json::Value = serde_json::from_str(&lines[0]).unwrap();
-        assert!(entry.get("timestamp").is_some(), "entry must have timestamp");
+        assert!(
+            entry.get("timestamp").is_some(),
+            "entry must have timestamp"
+        );
         assert_eq!(entry["state"]["hp"], 80);
         assert_eq!(entry["state"]["location"], "dock");
     }
@@ -356,7 +359,10 @@ mod tests_mls3 {
         let live_json: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(state_dir.join("live.json")).unwrap())
                 .unwrap();
-        assert_eq!(live_json["turn"], 2, "live.json should be overwritten with latest state");
+        assert_eq!(
+            live_json["turn"], 2,
+            "live.json should be overwritten with latest state"
+        );
 
         let history_path = crate::data_dir::char_state_history_path(tmp.path(), "dave");
         let line_count = std::io::BufReader::new(std::fs::File::open(&history_path).unwrap())
@@ -382,7 +388,10 @@ mod tests_mls9 {
         let response = "Adventure awaits!\n<state>{\"hp\":90,\"location\":\"forest\"}</state>";
 
         let (stripped, state_opt) = extract_state_content(response);
-        assert!(!stripped.contains("<state>"), "state block should be stripped");
+        assert!(
+            !stripped.contains("<state>"),
+            "state block should be stripped"
+        );
         assert_eq!(state_opt.as_ref().unwrap()["hp"], 90);
 
         let state = state_opt.unwrap();
@@ -391,8 +400,14 @@ mod tests_mls9 {
         // Inject into prompt and verify presence
         let mut prompt = String::new();
         crate::orchestrator::inject_live_state_for_test(tmp.path(), "eve", &mut prompt);
-        assert!(prompt.contains("[Current State]"), "prompt should have state header");
-        assert!(prompt.contains("<state>"), "prompt should include update instruction");
+        assert!(
+            prompt.contains("[Current State]"),
+            "prompt should have state header"
+        );
+        assert!(
+            prompt.contains("<state>"),
+            "prompt should include update instruction"
+        );
     }
 
     /// Empty state JSON `{}` persists live.json but renders empty state in prompt.
@@ -403,11 +418,20 @@ mod tests_mls9 {
         persist_live_state(tmp.path(), "frank", &state, None).await;
 
         let live_path = char_state_dir(tmp.path(), "frank").join("live.json");
-        assert!(live_path.exists(), "live.json should exist even for empty state");
+        assert!(
+            live_path.exists(),
+            "live.json should exist even for empty state"
+        );
         let history = char_state_history_path(tmp.path(), "frank");
         let lines: Vec<_> = std::io::BufReader::new(std::fs::File::open(&history).unwrap())
-            .lines().map(|l| l.unwrap()).collect();
-        assert_eq!(lines.len(), 1, "should have 1 history entry even for empty state");
+            .lines()
+            .map(|l| l.unwrap())
+            .collect();
+        assert_eq!(
+            lines.len(),
+            1,
+            "should have 1 history entry even for empty state"
+        );
     }
 
     /// Schema `_max` priority: state `hp_max` overrides schema `max`.
@@ -420,23 +444,34 @@ mod tests_mls9 {
         std::fs::write(
             state_dir.join("live.json"),
             r#"{"hp":60,"hp_max":120,"location":"cave"}"#,
-        ).unwrap();
+        )
+        .unwrap();
         let schema = serde_json::json!({
             "fields": [{"key":"hp","type":"number","min":0,"max":100,"label":"HP"}]
         });
-        std::fs::write(state_dir.join("schema.json"), serde_json::to_string(&schema).unwrap()).unwrap();
+        std::fs::write(
+            state_dir.join("schema.json"),
+            serde_json::to_string(&schema).unwrap(),
+        )
+        .unwrap();
 
         let mut prompt = String::new();
         crate::orchestrator::inject_live_state_for_test(tmp.path(), "grace", &mut prompt);
         // Should use state's hp_max=120, not schema's max=100
-        assert!(prompt.contains("60/120"), "state hp_max=120 should take priority over schema max=100");
+        assert!(
+            prompt.contains("60/120"),
+            "state hp_max=120 should take priority over schema max=100"
+        );
     }
 
     /// `state_update_prompt()` contains the `<state>` instruction.
     #[test]
     fn test_ls9_state_update_prompt_content() {
         let p = crate::mcp::state_update_prompt_for_test();
-        assert!(p.contains("<state>"), "state_update_prompt should contain <state> tag");
+        assert!(
+            p.contains("<state>"),
+            "state_update_prompt should contain <state> tag"
+        );
         assert!(p.contains("hp"), "should mention example hp field");
     }
 }
@@ -686,7 +721,11 @@ mod tests_dx1 {
         };
         // Pipeline should build without error; alice's user root is created
         let result = prepare_pipeline(&req, &state);
-        assert!(result.is_ok(), "pipeline with user_id should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "pipeline with user_id should succeed: {:?}",
+            result.err()
+        );
         // Verify effective root was alice's dir
         assert!(tmp.path().join("users").join("alice").exists());
     }

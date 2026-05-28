@@ -29,7 +29,12 @@ where
     S: Clone + Send + Sync + 'static,
 {
     let service = StreamableHttpService::new(
-        move || Ok(AirpMcpServer::new_with_subs(data_root.clone(), state_subs.clone())),
+        move || {
+            Ok(AirpMcpServer::new_with_subs(
+                data_root.clone(),
+                state_subs.clone(),
+            ))
+        },
         Arc::new(LocalSessionManager::default()),
         StreamableHttpServerConfig::default(),
     );

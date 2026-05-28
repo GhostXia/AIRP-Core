@@ -57,7 +57,9 @@ fn describe_users(data_root: &Path) -> Value {
 
             let persona_name: Option<String> = std::fs::read_to_string(&persona_path)
                 .ok()
-                .and_then(|s| serde_json::from_str::<Value>(crate::data_dir::strip_utf8_bom(&s)).ok())
+                .and_then(|s| {
+                    serde_json::from_str::<Value>(crate::data_dir::strip_utf8_bom(&s)).ok()
+                })
                 .and_then(|v| {
                     v.get("name")
                         .and_then(|n| n.as_str())
@@ -65,31 +67,28 @@ fn describe_users(data_root: &Path) -> Value {
                 });
 
             // drift_key_count: keys in current_state not in persona
-            let drift_key_count: usize =
-                match (persona_path.exists(), state_live.exists()) {
-                    (true, true) => {
-                        let p: Option<Value> = std::fs::read_to_string(&persona_path)
-                            .ok()
-                            .and_then(|s| {
-                                serde_json::from_str(crate::data_dir::strip_utf8_bom(&s)).ok()
-                            });
-                        let s: Option<Value> = std::fs::read_to_string(&state_live)
-                            .ok()
-                            .and_then(|s| {
-                                serde_json::from_str(crate::data_dir::strip_utf8_bom(&s)).ok()
-                            });
-                        match (p, s) {
-                            (Some(pv), Some(sv)) => match (pv.as_object(), sv.as_object()) {
-                                (Some(pm), Some(sm)) => {
-                                    sm.keys().filter(|k| !pm.contains_key(k.as_str())).count()
-                                }
-                                _ => 0,
-                            },
+            let drift_key_count: usize = match (persona_path.exists(), state_live.exists()) {
+                (true, true) => {
+                    let p: Option<Value> =
+                        std::fs::read_to_string(&persona_path).ok().and_then(|s| {
+                            serde_json::from_str(crate::data_dir::strip_utf8_bom(&s)).ok()
+                        });
+                    let s: Option<Value> =
+                        std::fs::read_to_string(&state_live).ok().and_then(|s| {
+                            serde_json::from_str(crate::data_dir::strip_utf8_bom(&s)).ok()
+                        });
+                    match (p, s) {
+                        (Some(pv), Some(sv)) => match (pv.as_object(), sv.as_object()) {
+                            (Some(pm), Some(sm)) => {
+                                sm.keys().filter(|k| !pm.contains_key(k.as_str())).count()
+                            }
                             _ => 0,
-                        }
+                        },
+                        _ => 0,
                     }
-                    _ => 0,
-                };
+                }
+                _ => 0,
+            };
 
             out.push(json!({
                 "id": id,
@@ -261,10 +260,7 @@ fn read_chat_tail(path: &Path, n: usize) -> Vec<Value> {
         Ok(s) => s,
         Err(_) => return Vec::new(),
     };
-    let lines: Vec<&str> = content
-        .lines()
-        .filter(|l| !l.trim().is_empty())
-        .collect();
+    let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
     let start = lines.len().saturating_sub(n);
     lines[start..]
         .iter()
@@ -455,7 +451,11 @@ mod tests {
         assert_eq!(r["settings"]["daemon_port"], 8000);
         // Crucially, the secret value must not leak — only the _set boolean.
         let serialized = r["settings"].to_string();
-        assert!(!serialized.contains("secret"), "secret leaked: {}", serialized);
+        assert!(
+            !serialized.contains("secret"),
+            "secret leaked: {}",
+            serialized
+        );
     }
 
     #[test]
@@ -463,7 +463,11 @@ mod tests {
         let tmp = tempdir().unwrap();
         let cdir = tmp.path().join("characters").join("alice");
         std::fs::create_dir_all(&cdir.join("card")).unwrap();
-        std::fs::write(cdir.join("card").join("card.json"), r#"{"spec":"chara_card_v2","data":{"name":"alice"}}"#).unwrap();
+        std::fs::write(
+            cdir.join("card").join("card.json"),
+            r#"{"spec":"chara_card_v2","data":{"name":"alice"}}"#,
+        )
+        .unwrap();
         std::fs::create_dir_all(cdir.join("world")).unwrap();
         std::fs::write(
             cdir.join("world").join("lorebook.json"),

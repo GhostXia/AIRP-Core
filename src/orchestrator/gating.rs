@@ -256,10 +256,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let temp_dir = tmp.path();
         let char_id = "alice";
-        let gating_dir = temp_dir
-            .join("characters")
-            .join(char_id)
-            .join("gating");
+        let gating_dir = temp_dir.join("characters").join(char_id).join("gating");
         fs::create_dir_all(&gating_dir).unwrap();
 
         fs::write(
@@ -328,10 +325,19 @@ mod tests {
 
         // 迁移结果验证
         let gating = char_dir.join("gating");
-        assert!(gating.join("checkpoints.md").exists(), "checkpoints 应在 gating/");
+        assert!(
+            gating.join("checkpoints.md").exists(),
+            "checkpoints 应在 gating/"
+        );
         assert!(gating.join("timeline.md").exists(), "timeline 应在 gating/");
-        assert!(!char_dir.join("checkpoints.md").exists(), "旧根 checkpoints 应被移走");
-        assert!(!char_dir.join("timeline.md").exists(), "旧根 timeline 应被移走");
+        assert!(
+            !char_dir.join("checkpoints.md").exists(),
+            "旧根 checkpoints 应被移走"
+        );
+        assert!(
+            !char_dir.join("timeline.md").exists(),
+            "旧根 timeline 应被移走"
+        );
 
         // 推进生效（5 → 6）
         let tl = fs::read_to_string(gating.join("timeline.md")).unwrap();
@@ -381,9 +387,17 @@ mod tests {
     fn test_audit_4_get_current_checkpoint_malformed_returns_default() {
         // checkpoints.md without recognizable CP line -> default CP-1
         let tmp = tempfile::tempdir().unwrap();
-        let gating = tmp.path().join("characters").join("malformed").join("gating");
+        let gating = tmp
+            .path()
+            .join("characters")
+            .join("malformed")
+            .join("gating");
         fs::create_dir_all(&gating).unwrap();
-        fs::write(gating.join("checkpoints.md"), "random garbage\nno CP marker").unwrap();
+        fs::write(
+            gating.join("checkpoints.md"),
+            "random garbage\nno CP marker",
+        )
+        .unwrap();
         assert_eq!(get_current_checkpoint(tmp.path(), "malformed"), "CP-1");
     }
 

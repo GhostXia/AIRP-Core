@@ -121,10 +121,7 @@ impl AirpMcpServer {
     /// - `airp://characters/{id}/state/live` → state/live.json（无则空对象）
     /// - `airp://presets` → 预设 ID 列表
     /// - `airp://presets/{id}/raw` → presets/{id}/preset.json 原文（供 Agent 自主分析）
-    pub(super) fn dispatch_resource(
-        &self,
-        uri: &str,
-    ) -> Result<Vec<ResourceContents>, ErrorData> {
+    pub(super) fn dispatch_resource(&self, uri: &str) -> Result<Vec<ResourceContents>, ErrorData> {
         // airp://presets
         if uri == "airp://presets" {
             let list = crate::data_dir::list_presets(&self.data_root).map_err(|e| {
@@ -139,15 +136,14 @@ impl AirpMcpServer {
         // airp://presets/{id}/...
         if let Some(rest) = uri.strip_prefix("airp://presets/") {
             let mut split = rest.splitn(2, '/');
-            let pid = split.next().ok_or_else(|| {
-                ErrorData::invalid_params("缺 preset_id".to_string(), None)
-            })?;
+            let pid = split
+                .next()
+                .ok_or_else(|| ErrorData::invalid_params("缺 preset_id".to_string(), None))?;
             let sub_full = split.next().unwrap_or("");
             // DS-4: strip optional ?query string from the sub-path before matching
             let sub = sub_full.split_once('?').map(|(s, _)| s).unwrap_or(sub_full);
-            crate::data_dir::validate_id_segment(pid).map_err(|e| {
-                ErrorData::invalid_params(format!("非法 preset_id: {}", e), None)
-            })?;
+            crate::data_dir::validate_id_segment(pid)
+                .map_err(|e| ErrorData::invalid_params(format!("非法 preset_id: {}", e), None))?;
             match sub {
                 "raw" => {
                     // DS-4: supports ?offset=N&limit=M for large files (e.g. LENI ~455 KB)
@@ -171,8 +167,7 @@ impl AirpMcpServer {
                     // DS-3：列出 Agent 已写入的产物文件（排除 preset.json 本身）
                     let preset_dir = self.data_root.join("presets").join(pid);
                     let files = walk_preset_artifacts(&preset_dir);
-                    let json =
-                        serde_json::to_string(&files).unwrap_or_else(|_| "[]".to_string());
+                    let json = serde_json::to_string(&files).unwrap_or_else(|_| "[]".to_string());
                     return Ok(vec![
                         ResourceContents::text(json, uri).with_mime_type("application/json")
                     ]);
@@ -212,9 +207,8 @@ impl AirpMcpServer {
 
         // M_UP: airp://users
         if uri == "airp://users" {
-            let list = crate::data_dir::list_users(&self.data_root).map_err(|e| {
-                ErrorData::internal_error(format!("list_users 失败: {}", e), None)
-            })?;
+            let list = crate::data_dir::list_users(&self.data_root)
+                .map_err(|e| ErrorData::internal_error(format!("list_users 失败: {}", e), None))?;
             let json = serde_json::to_string(&list).unwrap_or_else(|_| "[]".to_string());
             return Ok(vec![
                 ResourceContents::text(json, uri).with_mime_type("application/json")
@@ -229,9 +223,8 @@ impl AirpMcpServer {
                 .ok_or_else(|| ErrorData::invalid_params("缺 user_id".to_string(), None))?;
             let sub_full = split.next().unwrap_or("");
             let sub = sub_full.split_once('?').map(|(s, _)| s).unwrap_or(sub_full);
-            let uid = crate::types::UserId::new(uid).map_err(|e| {
-                ErrorData::invalid_params(format!("非法 user_id: {}", e), None)
-            })?;
+            let uid = crate::types::UserId::new(uid)
+                .map_err(|e| ErrorData::invalid_params(format!("非法 user_id: {}", e), None))?;
             match sub {
                 "persona" => {
                     let path = crate::data_dir::user_persona_path(&self.data_root, &uid);
@@ -278,9 +271,8 @@ impl AirpMcpServer {
             .next()
             .ok_or_else(|| ErrorData::invalid_params("缺 character_id".to_string(), None))?;
         let sub = split.next().unwrap_or("");
-        crate::data_dir::validate_id_segment(cid).map_err(|e| {
-            ErrorData::invalid_params(format!("非法 character_id: {}", e), None)
-        })?;
+        crate::data_dir::validate_id_segment(cid)
+            .map_err(|e| ErrorData::invalid_params(format!("非法 character_id: {}", e), None))?;
 
         match sub {
             "card" => {
@@ -295,17 +287,15 @@ impl AirpMcpServer {
                         None,
                     ));
                 };
-                let raw = std::fs::read_to_string(&path).map_err(|e| {
-                    ErrorData::internal_error(format!("读 card 失败: {}", e), None)
-                })?;
+                let raw = std::fs::read_to_string(&path)
+                    .map_err(|e| ErrorData::internal_error(format!("读 card 失败: {}", e), None))?;
                 let cleaned = crate::data_dir::strip_utf8_bom(&raw).to_owned();
                 Ok(vec![
                     ResourceContents::text(cleaned, uri).with_mime_type("application/json")
                 ])
             }
             "world/lorebook" => {
-                let lb_path =
-                    crate::data_dir::char_world_lorebook_path(&self.data_root, cid);
+                let lb_path = crate::data_dir::char_world_lorebook_path(&self.data_root, cid);
                 if !lb_path.exists() {
                     // 返空 lorebook 而非错误，便于 client 容错探测
                     return Ok(vec![ResourceContents::text(r#"{"entries":[]}"#, uri)
@@ -323,8 +313,7 @@ impl AirpMcpServer {
                 // DS-B：列出 Agent 已写入的角色卡产物（排除系统目录和系统文件）
                 let char_dir = self.data_root.join("characters").join(cid);
                 let files = walk_character_artifacts(&char_dir);
-                let json =
-                    serde_json::to_string(&files).unwrap_or_else(|_| "[]".to_string());
+                let json = serde_json::to_string(&files).unwrap_or_else(|_| "[]".to_string());
                 Ok(vec![
                     ResourceContents::text(json, uri).with_mime_type("application/json")
                 ])
@@ -339,11 +328,8 @@ impl AirpMcpServer {
                     .join("chat_log.jsonl");
                 if !jsonl.exists() {
                     let empty = serde_json::json!({"character_id": cid, "messages": []});
-                    return Ok(vec![ResourceContents::text(
-                        empty.to_string(),
-                        uri,
-                    )
-                    .with_mime_type("application/json")]);
+                    return Ok(vec![ResourceContents::text(empty.to_string(), uri)
+                        .with_mime_type("application/json")]);
                 }
                 let log = crate::chat_store::ChatLog::load_or_create(&self.data_root, cid)
                     .map_err(|e| {

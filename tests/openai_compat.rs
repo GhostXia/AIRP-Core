@@ -121,7 +121,6 @@ async fn setup(upstream_url: &str) -> (Arc<DaemonState>, tempfile::TempDir) {
     (state, tmp)
 }
 
-
 #[tokio::test]
 async fn test_dx7_completions_returns_sse_200() {
     let server = MockServer::start().await;
@@ -152,7 +151,10 @@ async fn test_dx7_completions_returns_sse_200() {
     let resp = router.oneshot(req).await.unwrap();
     if resp.status() != StatusCode::OK {
         let b = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
-        panic!("expected 200, got 500: {}", std::str::from_utf8(&b).unwrap_or("?"));
+        panic!(
+            "expected 200, got 500: {}",
+            std::str::from_utf8(&b).unwrap_or("?")
+        );
     }
 
     let ct = resp
@@ -329,7 +331,10 @@ async fn test_dx10_multi_user_quota_isolation() {
 
     // alice first request → 200.
     let r1 = create_router(state.clone())
-        .oneshot(build_post_request("/v1/chat/completions", &make_body("alice_dx10")))
+        .oneshot(build_post_request(
+            "/v1/chat/completions",
+            &make_body("alice_dx10"),
+        ))
         .await
         .unwrap();
     assert_eq!(r1.status(), StatusCode::OK, "alice first req should be OK");
@@ -337,7 +342,10 @@ async fn test_dx10_multi_user_quota_isolation() {
 
     // bob first request → 200 (independent quota).
     let r2 = create_router(state.clone())
-        .oneshot(build_post_request("/v1/chat/completions", &make_body("bob_dx10")))
+        .oneshot(build_post_request(
+            "/v1/chat/completions",
+            &make_body("bob_dx10"),
+        ))
         .await
         .unwrap();
     assert_eq!(r2.status(), StatusCode::OK, "bob first req should be OK");
@@ -345,7 +353,10 @@ async fn test_dx10_multi_user_quota_isolation() {
 
     // alice second request → 429.
     let r3 = create_router(state.clone())
-        .oneshot(build_post_request("/v1/chat/completions", &make_body("alice_dx10")))
+        .oneshot(build_post_request(
+            "/v1/chat/completions",
+            &make_body("alice_dx10"),
+        ))
         .await
         .unwrap();
     assert_eq!(
@@ -356,7 +367,10 @@ async fn test_dx10_multi_user_quota_isolation() {
 
     // bob second request → 429.
     let r4 = create_router(state.clone())
-        .oneshot(build_post_request("/v1/chat/completions", &make_body("bob_dx10")))
+        .oneshot(build_post_request(
+            "/v1/chat/completions",
+            &make_body("bob_dx10"),
+        ))
         .await
         .unwrap();
     assert_eq!(

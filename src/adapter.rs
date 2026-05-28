@@ -443,10 +443,7 @@ mod tests {
     #[test]
     fn test_parse_anthropic_delta_line_extracts_text() {
         let line = r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}"#;
-        assert_eq!(
-            parse_anthropic_delta_line(line),
-            Some("Hello".to_string())
-        );
+        assert_eq!(parse_anthropic_delta_line(line), Some("Hello".to_string()));
     }
 
     #[test]

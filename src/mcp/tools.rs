@@ -1,4 +1,4 @@
-﻿use rmcp::{handler::server::wrapper::Parameters, schemars, ErrorData};
+use rmcp::{handler::server::wrapper::Parameters, schemars, ErrorData};
 
 use super::AirpMcpServer;
 
@@ -440,8 +440,7 @@ impl AirpMcpServer {
         let greetings_count = std::fs::read_dir(&greetings_dir)
             .map(|it| it.filter_map(|e| e.ok()).count())
             .unwrap_or(0);
-        let lb_path =
-            crate::data_dir::char_world_lorebook_path(&self.data_root, &req.character_id);
+        let lb_path = crate::data_dir::char_world_lorebook_path(&self.data_root, &req.character_id);
         let lorebook_entries = if lb_path.exists() {
             std::fs::read_to_string(&lb_path)
                 .ok()
@@ -474,8 +473,7 @@ impl AirpMcpServer {
         &self,
         Parameters(req): Parameters<ApplyLorebookRequest>,
     ) -> Result<String, ErrorData> {
-        let lb_path =
-            crate::data_dir::char_world_lorebook_path(&self.data_root, &req.character_id);
+        let lb_path = crate::data_dir::char_world_lorebook_path(&self.data_root, &req.character_id);
         if !lb_path.exists() {
             return Ok(String::new());
         }
@@ -514,8 +512,7 @@ impl AirpMcpServer {
             .map_err(|e| ErrorData::internal_error(format!("读 card 失败: {}", e), None))?;
         let card_json = crate::data_dir::strip_utf8_bom(&card_json).to_owned();
 
-        let lb_path =
-            crate::data_dir::char_world_lorebook_path(&self.data_root, &req.character_id);
+        let lb_path = crate::data_dir::char_world_lorebook_path(&self.data_root, &req.character_id);
         let lorebook_json = if lb_path.exists() {
             std::fs::read_to_string(&lb_path)
                 .ok()
@@ -566,12 +563,7 @@ impl AirpMcpServer {
                 .collect();
             entries.sort_by_key(|e| e.file_name());
             for entry in entries {
-                if entry
-                    .path()
-                    .extension()
-                    .and_then(|s| s.to_str())
-                    == Some("md")
-                {
+                if entry.path().extension().and_then(|s| s.to_str()) == Some("md") {
                     if let Ok(content) = std::fs::read_to_string(entry.path()) {
                         greetings.push(content);
                     }
@@ -588,9 +580,7 @@ impl AirpMcpServer {
             &req.character_id,
             session_id_parsed.as_ref(),
         )
-        .map_err(|e| {
-            ErrorData::internal_error(format!("session 目录解析失败: {}", e), None)
-        })?;
+        .map_err(|e| ErrorData::internal_error(format!("session 目录解析失败: {}", e), None))?;
 
         let result = serde_json::json!({
             "character_id": req.character_id,
@@ -602,7 +592,8 @@ impl AirpMcpServer {
         });
         let response = result.to_string();
         if let Some(ref key) = req.idempotency_key {
-            self.idempotency.store("start_session", key, response.clone());
+            self.idempotency
+                .store("start_session", key, response.clone());
         }
         Ok(response)
     }
@@ -625,23 +616,23 @@ impl AirpMcpServer {
         let preset_dir = self.data_root.join("presets").join(&req.preset_id);
         // 确保基目录存在，safe_resolve_for_write 需要 canonicalize base_dir
         std::fs::create_dir_all(&preset_dir).map_err(|e| {
-            ErrorData::internal_error(format!("创建 presets/{} 目录失败: {}", req.preset_id, e), None)
+            ErrorData::internal_error(
+                format!("创建 presets/{} 目录失败: {}", req.preset_id, e),
+                None,
+            )
         })?;
         let artifact_full =
-            crate::data_dir::safe_resolve_for_write(&preset_dir, &req.artifact_path)
-                .map_err(|e| {
-                    ErrorData::invalid_params(format!("非法 artifact_path: {}", e), None)
-                })?;
+            crate::data_dir::safe_resolve_for_write(&preset_dir, &req.artifact_path).map_err(
+                |e| ErrorData::invalid_params(format!("非法 artifact_path: {}", e), None),
+            )?;
 
         if let Some(parent) = artifact_full.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| {
-                ErrorData::internal_error(format!("创建目录失败: {}", e), None)
-            })?;
+            std::fs::create_dir_all(parent)
+                .map_err(|e| ErrorData::internal_error(format!("创建目录失败: {}", e), None))?;
         }
 
-        std::fs::write(&artifact_full, req.content.as_bytes()).map_err(|e| {
-            ErrorData::internal_error(format!("写文件失败: {}", e), None)
-        })?;
+        std::fs::write(&artifact_full, req.content.as_bytes())
+            .map_err(|e| ErrorData::internal_error(format!("写文件失败: {}", e), None))?;
 
         let response = serde_json::json!({
             "preset_id": req.preset_id,
@@ -650,7 +641,8 @@ impl AirpMcpServer {
         })
         .to_string();
         if let Some(ref key) = req.idempotency_key {
-            self.idempotency.store("write_preset_artifact", key, response.clone());
+            self.idempotency
+                .store("write_preset_artifact", key, response.clone());
         }
         Ok(response)
     }
@@ -670,14 +662,14 @@ impl AirpMcpServer {
             .map_err(|e| ErrorData::invalid_params(format!("非法 preset_id: {}", e), None))?;
 
         // 校验 JSON 合法性（拒绝非 JSON 内容）
-        let _ = serde_json::from_str::<serde_json::Value>(&req.preset_json)
-            .map_err(|e| ErrorData::invalid_params(format!("preset_json 不是合法 JSON: {}", e), None))?;
+        let _ = serde_json::from_str::<serde_json::Value>(&req.preset_json).map_err(|e| {
+            ErrorData::invalid_params(format!("preset_json 不是合法 JSON: {}", e), None)
+        })?;
 
         let preset_path = crate::data_dir::preset_json_path(&self.data_root, &req.preset_id);
         if let Some(parent) = preset_path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| {
-                ErrorData::internal_error(format!("创建目录失败: {}", e), None)
-            })?;
+            std::fs::create_dir_all(parent)
+                .map_err(|e| ErrorData::internal_error(format!("创建目录失败: {}", e), None))?;
         }
         let bytes = req.preset_json.as_bytes();
         std::fs::write(&preset_path, bytes)
@@ -690,7 +682,8 @@ impl AirpMcpServer {
         })
         .to_string();
         if let Some(ref key) = req.idempotency_key {
-            self.idempotency.store("import_preset", key, response.clone());
+            self.idempotency
+                .store("import_preset", key, response.clone());
         }
         Ok(response)
     }
@@ -703,7 +696,11 @@ impl AirpMcpServer {
         crate::data_dir::validate_id_segment(&req.preset_id)
             .map_err(|e| ErrorData::invalid_params(format!("非法 preset_id: {}", e), None))?;
 
-        let regex_dir = self.data_root.join("presets").join(&req.preset_id).join("regex");
+        let regex_dir = self
+            .data_root
+            .join("presets")
+            .join(&req.preset_id)
+            .join("regex");
         if !regex_dir.exists() {
             return Ok("[]".to_string());
         }
@@ -713,8 +710,7 @@ impl AirpMcpServer {
             .map_err(|e| ErrorData::internal_error(format!("读 regex 目录失败: {}", e), None))?
             .filter_map(|e| e.ok())
             .filter(|e| {
-                e.path().is_file()
-                    && e.path().extension().and_then(|s| s.to_str()) == Some("json")
+                e.path().is_file() && e.path().extension().and_then(|s| s.to_str()) == Some("json")
             })
             .collect();
         entries.sort_by_key(|e| e.file_name());
@@ -767,9 +763,11 @@ impl AirpMcpServer {
 
         let preset_dir = self.data_root.join("presets").join(&req.preset_id);
         // safe_resolve_for_write 防路径穿越：确保 regex/{filename} 在 preset_dir 内
-        let target =
-            crate::data_dir::safe_resolve_for_write(&preset_dir, &format!("regex/{}", req.filename))
-                .map_err(|e| ErrorData::invalid_params(format!("非法 filename: {}", e), None))?;
+        let target = crate::data_dir::safe_resolve_for_write(
+            &preset_dir,
+            &format!("regex/{}", req.filename),
+        )
+        .map_err(|e| ErrorData::invalid_params(format!("非法 filename: {}", e), None))?;
 
         if !target.exists() {
             return Err(ErrorData::invalid_params(
@@ -798,9 +796,11 @@ impl AirpMcpServer {
             .map_err(|e| ErrorData::invalid_params(format!("非法 preset_id: {}", e), None))?;
 
         let preset_dir = self.data_root.join("presets").join(&req.preset_id);
-        let target =
-            crate::data_dir::safe_resolve_for_write(&preset_dir, &format!("regex/{}", req.filename))
-                .map_err(|e| ErrorData::invalid_params(format!("非法 filename: {}", e), None))?;
+        let target = crate::data_dir::safe_resolve_for_write(
+            &preset_dir,
+            &format!("regex/{}", req.filename),
+        )
+        .map_err(|e| ErrorData::invalid_params(format!("非法 filename: {}", e), None))?;
 
         if !target.exists() {
             return Err(ErrorData::invalid_params(
@@ -815,7 +815,8 @@ impl AirpMcpServer {
 
         // 支持单对象（设 disabled 字段）；数组格式对所有条目设置
         let new_disabled = !req.enabled;
-        let updated: String = if let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&cleaned) {
+        let updated: String = if let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&cleaned)
+        {
             if v.is_object() {
                 v["disabled"] = serde_json::json!(new_disabled);
             } else if let Some(arr) = v.as_array_mut() {
@@ -852,11 +853,8 @@ impl AirpMcpServer {
         crate::data_dir::validate_id_segment(&req.character_id)
             .map_err(|e| ErrorData::invalid_params(format!("非法 character_id: {}", e), None))?;
 
-        let log =
-            crate::chat_store::ChatLog::load_or_create(&self.data_root, &req.character_id)
-                .map_err(|e| {
-                    ErrorData::internal_error(format!("读 ChatLog 失败: {}", e), None)
-                })?;
+        let log = crate::chat_store::ChatLog::load_or_create(&self.data_root, &req.character_id)
+            .map_err(|e| ErrorData::internal_error(format!("读 ChatLog 失败: {}", e), None))?;
 
         let msgs = log.recent(req.n);
         serde_json::to_string(&serde_json::json!({
@@ -901,9 +899,7 @@ impl AirpMcpServer {
 
         let mut log =
             crate::chat_store::ChatLog::load_or_create(&self.data_root, &req.character_id)
-                .map_err(|e| {
-                    ErrorData::internal_error(format!("读 ChatLog 失败: {}", e), None)
-                })?;
+                .map_err(|e| ErrorData::internal_error(format!("读 ChatLog 失败: {}", e), None))?;
 
         let msg = ChatMessage {
             role,
@@ -963,7 +959,8 @@ impl AirpMcpServer {
 
         // AUDIT-12: store the successful response for future retries.
         if let Some(ref key) = req.idempotency_key {
-            self.idempotency.store("append_message", key, response.clone());
+            self.idempotency
+                .store("append_message", key, response.clone());
         }
 
         Ok(response)
@@ -1028,7 +1025,8 @@ impl AirpMcpServer {
             .map_err(|e| ErrorData::internal_error(format!("写 live.json 失败: {}", e), None))?;
 
         // 追加快照到 state/history.jsonl
-        let history_path = crate::data_dir::char_state_history_path(&self.data_root, &req.character_id);
+        let history_path =
+            crate::data_dir::char_state_history_path(&self.data_root, &req.character_id);
         let snapshot = serde_json::json!({
             "ts": chrono::Utc::now().to_rfc3339(),
             "state": merged,
@@ -1060,7 +1058,8 @@ impl AirpMcpServer {
 
         // AUDIT-12: cache result for retry safety.
         if let Some(ref key) = req.idempotency_key {
-            self.idempotency.store("update_state", key, response.clone());
+            self.idempotency
+                .store("update_state", key, response.clone());
         }
 
         Ok(response)
@@ -1084,23 +1083,21 @@ impl AirpMcpServer {
         let char_dir = self.data_root.join("characters").join(&req.character_id);
         // 确保基目录存在，safe_resolve_for_write 需要 canonicalize base_dir
         std::fs::create_dir_all(&char_dir).map_err(|e| {
-            ErrorData::internal_error(format!("创建 characters/{} 目录失败: {}", req.character_id, e), None)
+            ErrorData::internal_error(
+                format!("创建 characters/{} 目录失败: {}", req.character_id, e),
+                None,
+            )
         })?;
-        let artifact_full =
-            crate::data_dir::safe_resolve_for_write(&char_dir, &req.artifact_path)
-                .map_err(|e| {
-                    ErrorData::invalid_params(format!("非法 artifact_path: {}", e), None)
-                })?;
+        let artifact_full = crate::data_dir::safe_resolve_for_write(&char_dir, &req.artifact_path)
+            .map_err(|e| ErrorData::invalid_params(format!("非法 artifact_path: {}", e), None))?;
 
         if let Some(parent) = artifact_full.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| {
-                ErrorData::internal_error(format!("创建目录失败: {}", e), None)
-            })?;
+            std::fs::create_dir_all(parent)
+                .map_err(|e| ErrorData::internal_error(format!("创建目录失败: {}", e), None))?;
         }
 
-        std::fs::write(&artifact_full, req.content.as_bytes()).map_err(|e| {
-            ErrorData::internal_error(format!("写文件失败: {}", e), None)
-        })?;
+        std::fs::write(&artifact_full, req.content.as_bytes())
+            .map_err(|e| ErrorData::internal_error(format!("写文件失败: {}", e), None))?;
 
         let response = serde_json::json!({
             "character_id": req.character_id,
@@ -1109,7 +1106,8 @@ impl AirpMcpServer {
         })
         .to_string();
         if let Some(ref key) = req.idempotency_key {
-            self.idempotency.store("write_character_artifact", key, response.clone());
+            self.idempotency
+                .store("write_character_artifact", key, response.clone());
         }
         Ok(response)
     }
@@ -1134,9 +1132,8 @@ impl AirpMcpServer {
                 })?;
 
         let before = log.messages.len();
-        log.delete_last_n(&self.data_root, n).map_err(|e| {
-            ErrorData::internal_error(format!("回滚失败: {}", e), None)
-        })?;
+        log.delete_last_n(&self.data_root, n)
+            .map_err(|e| ErrorData::internal_error(format!("回滚失败: {}", e), None))?;
         let after = log.messages.len();
         let removed = before - after;
 
@@ -1156,10 +1153,8 @@ impl AirpMcpServer {
     ) -> Result<String, ErrorData> {
         crate::data_dir::validate_id_segment(&req.character_id)
             .map_err(|e| ErrorData::invalid_params(format!("非法 character_id: {}", e), None))?;
-        let sessions =
-            crate::data_dir::list_sessions(&self.data_root, &req.character_id).map_err(|e| {
-                ErrorData::internal_error(format!("列举 sessions 失败: {}", e), None)
-            })?;
+        let sessions = crate::data_dir::list_sessions(&self.data_root, &req.character_id)
+            .map_err(|e| ErrorData::internal_error(format!("列举 sessions 失败: {}", e), None))?;
         let ids: Vec<String> = sessions.iter().map(|s| s.to_string()).collect();
         Ok(serde_json::json!({
             "character_id": req.character_id,
@@ -1313,12 +1308,9 @@ impl AirpMcpServer {
             .join("characters")
             .join(&req.character_id)
             .join("memory");
-        let content = crate::volume_store::read_volume_full(&memory_dir, req.number)
-            .map_err(|e| {
-                ErrorData::invalid_params(
-                    format!("读 vol_{:03}.md 失败: {}", req.number, e),
-                    None,
-                )
+        let content =
+            crate::volume_store::read_volume_full(&memory_dir, req.number).map_err(|e| {
+                ErrorData::invalid_params(format!("读 vol_{:03}.md 失败: {}", req.number, e), None)
             })?;
         Ok(serde_json::json!({
             "character_id": req.character_id,
@@ -1347,15 +1339,14 @@ impl AirpMcpServer {
 
         // session_dir() ensures memory/ + volumes/ + current.md + index.md exist.
         let session_dir = crate::data_dir::session_dir(&self.data_root, &req.character_id)
-            .map_err(|e| {
-                ErrorData::internal_error(format!("session_dir 解析失败: {}", e), None)
-            })?;
+            .map_err(|e| ErrorData::internal_error(format!("session_dir 解析失败: {}", e), None))?;
 
         // Decide content source: explicit override or raw current.md.
         let body = match req.content.clone() {
             Some(c) => c,
-            None => crate::volume_store::read_current(&session_dir)
-                .map_err(|e| ErrorData::internal_error(format!("读 current.md 失败: {}", e), None))?,
+            None => crate::volume_store::read_current(&session_dir).map_err(|e| {
+                ErrorData::internal_error(format!("读 current.md 失败: {}", e), None)
+            })?,
         };
         if body.trim().is_empty() {
             return Err(ErrorData::invalid_params(
@@ -1368,9 +1359,8 @@ impl AirpMcpServer {
         crate::volume_store::write_volume(&session_dir, next_n, &body).map_err(|e| {
             ErrorData::internal_error(format!("写 vol_{:03}.md 失败: {}", next_n, e), None)
         })?;
-        crate::volume_store::clear_current(&session_dir).map_err(|e| {
-            ErrorData::internal_error(format!("清空 current.md 失败: {}", e), None)
-        })?;
+        crate::volume_store::clear_current(&session_dir)
+            .map_err(|e| ErrorData::internal_error(format!("清空 current.md 失败: {}", e), None))?;
 
         let response = serde_json::json!({
             "character_id": req.character_id,
@@ -1427,7 +1417,10 @@ impl AirpMcpServer {
         }
         let scene: crate::scene::SceneConfig =
             serde_json::from_str(&req.scene_json).map_err(|e| {
-                ErrorData::invalid_params(format!("scene_json 非合法 SceneConfig JSON: {}", e), None)
+                ErrorData::invalid_params(
+                    format!("scene_json 非合法 SceneConfig JSON: {}", e),
+                    None,
+                )
             })?;
         scene
             .save(&self.data_root)
@@ -1439,7 +1432,8 @@ impl AirpMcpServer {
         })
         .to_string();
         if let Some(ref key) = req.idempotency_key {
-            self.idempotency.store("create_scene", key, response.clone());
+            self.idempotency
+                .store("create_scene", key, response.clone());
         }
         Ok(response)
     }
@@ -1459,9 +1453,10 @@ impl AirpMcpServer {
         crate::data_dir::validate_id_segment(&req.character_id)
             .map_err(|e| ErrorData::invalid_params(format!("非法 character_id: {}", e), None))?;
 
-        let mut scene = crate::scene::SceneConfig::load(&self.data_root, &scene_id).map_err(|e| {
-            ErrorData::invalid_params(format!("scene `{}` 加载失败: {}", req.scene_id, e), None)
-        })?;
+        let mut scene =
+            crate::scene::SceneConfig::load(&self.data_root, &scene_id).map_err(|e| {
+                ErrorData::invalid_params(format!("scene `{}` 加载失败: {}", req.scene_id, e), None)
+            })?;
         let role = match req.role.as_deref() {
             Some("primary") => crate::scene::CharacterRole::Primary,
             _ => crate::scene::CharacterRole::Npc,
@@ -1481,7 +1476,8 @@ impl AirpMcpServer {
         })
         .to_string();
         if let Some(ref key) = req.idempotency_key {
-            self.idempotency.store("add_scene_character", key, response.clone());
+            self.idempotency
+                .store("add_scene_character", key, response.clone());
         }
         Ok(response)
     }
@@ -1548,8 +1544,8 @@ impl AirpMcpServer {
     ) -> Result<String, ErrorData> {
         crate::data_dir::validate_id_segment(&req.character_id)
             .map_err(|e| ErrorData::invalid_params(format!("非法 character_id: {}", e), None))?;
-        let live_path = crate::data_dir::char_state_dir(&self.data_root, &req.character_id)
-            .join("live.json");
+        let live_path =
+            crate::data_dir::char_state_dir(&self.data_root, &req.character_id).join("live.json");
         let state: serde_json::Value = if live_path.exists() {
             std::fs::read_to_string(&live_path)
                 .ok()
@@ -1580,7 +1576,8 @@ impl AirpMcpServer {
             }
         }
 
-        let __uid = crate::types::UserId::new(&req.user_id).map_err(|e| ErrorData::invalid_params(format!("非法 user_id: {}", e), None))?;
+        let __uid = crate::types::UserId::new(&req.user_id)
+            .map_err(|e| ErrorData::invalid_params(format!("非法 user_id: {}", e), None))?;
 
         // Reject if locked
         let lock_path = crate::data_dir::user_persona_lock_path(&self.data_root, &__uid);
@@ -1609,10 +1606,7 @@ impl AirpMcpServer {
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
             .ok_or_else(|| {
-                ErrorData::invalid_params(
-                    "persona_json 必须含非空 `name` 字段".to_string(),
-                    None,
-                )
+                ErrorData::invalid_params("persona_json 必须含非空 `name` 字段".to_string(), None)
             })?
             .to_string();
 
@@ -1623,9 +1617,8 @@ impl AirpMcpServer {
         })?;
         let persona_path = crate::data_dir::user_persona_path(&self.data_root, &__uid);
         let pretty = serde_json::to_string_pretty(&parsed).unwrap_or(req.persona_json.clone());
-        std::fs::write(&persona_path, pretty.as_bytes()).map_err(|e| {
-            ErrorData::internal_error(format!("写 persona.json 失败: {}", e), None)
-        })?;
+        std::fs::write(&persona_path, pretty.as_bytes())
+            .map_err(|e| ErrorData::internal_error(format!("写 persona.json 失败: {}", e), None))?;
 
         let locked = if req.lock {
             std::fs::write(&lock_path, b"locked\n").map_err(|e| {
@@ -1645,7 +1638,8 @@ impl AirpMcpServer {
         .to_string();
 
         if let Some(ref key) = req.idempotency_key {
-            self.idempotency.store("import_user_persona", key, response.clone());
+            self.idempotency
+                .store("import_user_persona", key, response.clone());
         }
 
         Ok(response)
@@ -1656,12 +1650,16 @@ impl AirpMcpServer {
         &self,
         Parameters(req): Parameters<LockUserPersonaRequest>,
     ) -> Result<String, ErrorData> {
-        let __uid = crate::types::UserId::new(&req.user_id).map_err(|e| ErrorData::invalid_params(format!("非法 user_id: {}", e), None))?;
+        let __uid = crate::types::UserId::new(&req.user_id)
+            .map_err(|e| ErrorData::invalid_params(format!("非法 user_id: {}", e), None))?;
 
         let persona_path = crate::data_dir::user_persona_path(&self.data_root, &__uid);
         if !persona_path.exists() {
             return Err(ErrorData::invalid_params(
-                format!("user `{}` persona.json 不存在；先调 import_user_persona", req.user_id),
+                format!(
+                    "user `{}` persona.json 不存在；先调 import_user_persona",
+                    req.user_id
+                ),
                 None,
             ));
         }
@@ -1687,7 +1685,8 @@ impl AirpMcpServer {
         &self,
         Parameters(req): Parameters<GetUserPersonaRequest>,
     ) -> Result<String, ErrorData> {
-        let __uid = crate::types::UserId::new(&req.user_id).map_err(|e| ErrorData::invalid_params(format!("非法 user_id: {}", e), None))?;
+        let __uid = crate::types::UserId::new(&req.user_id)
+            .map_err(|e| ErrorData::invalid_params(format!("非法 user_id: {}", e), None))?;
 
         let persona_path = crate::data_dir::user_persona_path(&self.data_root, &__uid);
         let persona: Option<serde_json::Value> = if persona_path.exists() {
@@ -1749,7 +1748,8 @@ impl AirpMcpServer {
             }
         }
 
-        let __uid = crate::types::UserId::new(&req.user_id).map_err(|e| ErrorData::invalid_params(format!("非法 user_id: {}", e), None))?;
+        let __uid = crate::types::UserId::new(&req.user_id)
+            .map_err(|e| ErrorData::invalid_params(format!("非法 user_id: {}", e), None))?;
 
         let delta: serde_json::Value = serde_json::from_str(&req.state_json).map_err(|e| {
             ErrorData::invalid_params(format!("state_json 非合法 JSON: {}", e), None)
@@ -1791,8 +1791,7 @@ impl AirpMcpServer {
             .map_err(|e| ErrorData::internal_error(format!("写 live.json 失败: {}", e), None))?;
 
         // Append snapshot
-        let history_path =
-            crate::data_dir::user_state_history_path(&self.data_root, &__uid);
+        let history_path = crate::data_dir::user_state_history_path(&self.data_root, &__uid);
         let snapshot = serde_json::json!({
             "ts": chrono::Utc::now().to_rfc3339(),
             "state": merged,
@@ -1823,7 +1822,8 @@ impl AirpMcpServer {
         .to_string();
 
         if let Some(ref key) = req.idempotency_key {
-            self.idempotency.store("update_user_state", key, response.clone());
+            self.idempotency
+                .store("update_user_state", key, response.clone());
         }
 
         Ok(response)
@@ -1834,10 +1834,10 @@ impl AirpMcpServer {
         &self,
         Parameters(req): Parameters<GetUserStateHistoryRequest>,
     ) -> Result<String, ErrorData> {
-        let __uid = crate::types::UserId::new(&req.user_id).map_err(|e| ErrorData::invalid_params(format!("非法 user_id: {}", e), None))?;
+        let __uid = crate::types::UserId::new(&req.user_id)
+            .map_err(|e| ErrorData::invalid_params(format!("非法 user_id: {}", e), None))?;
 
-        let history_path =
-            crate::data_dir::user_state_history_path(&self.data_root, &__uid);
+        let history_path = crate::data_dir::user_state_history_path(&self.data_root, &__uid);
         let n = req.n.clamp(1, 1000);
         let entries: Vec<serde_json::Value> = if history_path.exists() {
             std::fs::read_to_string(&history_path)

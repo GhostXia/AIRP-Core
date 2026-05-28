@@ -178,7 +178,10 @@ impl ChatLog {
 
         // ── 3. legacy JSON 迁移：chat_log.json → history/ ────────────────────
         if legacy.exists() {
-            tracing::info!(char = character_id, "CF-2 迁移: chat_log.json (legacy) → history/");
+            tracing::info!(
+                char = character_id,
+                "CF-2 迁移: chat_log.json (legacy) → history/"
+            );
             let content = fs::read_to_string(&legacy)?;
             let log: ChatLog = serde_json::from_str(&content)?;
             log.save(data_root)?;
@@ -504,8 +507,14 @@ mod tests {
         assert_eq!(loaded.messages[0].content, "hello");
 
         // 旧文件应被删除
-        assert!(!old_jsonl.exists(), "迁移后旧根目录 chat_log.jsonl 应被删除");
-        assert!(!old_meta.exists(), "迁移后旧根目录 chat_log_meta.json 应被删除");
+        assert!(
+            !old_jsonl.exists(),
+            "迁移后旧根目录 chat_log.jsonl 应被删除"
+        );
+        assert!(
+            !old_meta.exists(),
+            "迁移后旧根目录 chat_log_meta.json 应被删除"
+        );
 
         // 新文件位于 history/
         assert!(char_dir.join("history").join("chat_log.jsonl").exists());

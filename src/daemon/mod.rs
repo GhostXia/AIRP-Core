@@ -1,13 +1,13 @@
 //! Daemon state, config, auth middleware, and axum router factory.
 
-pub mod types;
 pub(crate) mod handlers;
+pub mod types;
 
+pub(crate) use handlers::import_card_to_disk;
 pub use types::{
     ChatCompletionRequest, ChatResponseChunk, HistoryQuery, RegenRequest, RollbackRequest,
     UserProfile,
 };
-pub(crate) use handlers::import_card_to_disk;
 
 use crate::adapter::{BackendEngine, Provider};
 use crate::config::VolumeConfig;
@@ -128,7 +128,11 @@ impl tower_governor::key_extractor::KeyExtractor for UserOrIpKeyExtractor {
         if let Some(auth) = req.headers().get(header::AUTHORIZATION) {
             if let Ok(s) = auth.to_str() {
                 if let Some(token) = s.strip_prefix("Bearer ") {
-                    let key = if token.len() > 32 { &token[..32] } else { token };
+                    let key = if token.len() > 32 {
+                        &token[..32]
+                    } else {
+                        token
+                    };
                     return Ok(format!("k:{}", key));
                 }
             }
@@ -209,21 +213,20 @@ pub fn create_router(state: Arc<DaemonState>) -> Router {
         )
         .route("/v1/settings", get(get_settings).post(update_settings))
         .route("/v1/sync/manifest", get(crate::sync::sync_manifest_handler))
-        .route(
-            "/v1/sync/blob/:hash",
-            get(crate::sync::sync_blob_handler),
-        )
-        .route_layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
+        .route("/v1/sync/blob/:hash", get(crate::sync::sync_blob_handler))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ));
 
     // AUDIT-1: `/mcp/v1` previously bypassed `auth_middleware`. With
     // AIRP_ACCESS_KEY unset, the middleware is a no-op; with it set, all MCP
     // HTTP requests must carry `Authorization: Bearer <key>` — matching the
     // protection level of /v1/* and stopping local cross-user MCP hijacking.
-    let mcp_routes = crate::mcp::mcp_http_router(
-        state.data_root.clone(),
-        state.state_subs.clone(),
-    )
-    .route_layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
+    let mcp_routes =
+        crate::mcp::mcp_http_router(state.data_root.clone(), state.state_subs.clone()).route_layer(
+            middleware::from_fn_with_state(state.clone(), auth_middleware),
+        );
 
     Router::new()
         .route("/", get(|| async { Html(include_str!("../index.html")) }))
@@ -414,7 +417,11 @@ mod tests {
     #[tokio::test]
     async fn test_mls3_state_returns_live_json() {
         let (state, _tmp) = make_state_no_key();
-        let state_dir = state.data_root.join("characters").join("alice").join("state");
+        let state_dir = state
+            .data_root
+            .join("characters")
+            .join("alice")
+            .join("state");
         std::fs::create_dir_all(&state_dir).unwrap();
         std::fs::write(
             state_dir.join("live.json"),
@@ -454,10 +461,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(
-            resp.status() == StatusCode::BAD_REQUEST
-                || resp.status() == StatusCode::NOT_FOUND
-        );
+        assert!(resp.status() == StatusCode::BAD_REQUEST || resp.status() == StatusCode::NOT_FOUND);
     }
 
     // M_MS MS-3 tests
@@ -467,10 +471,18 @@ mod tests {
         let (state, _tmp) = make_state_no_key();
         let app = create_router(state);
         let resp = app
-            .oneshot(axum::http::Request::builder().uri("/v1/scenes").body(Body::empty()).unwrap())
-            .await.unwrap();
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/v1/scenes")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let v: Vec<String> = serde_json::from_slice(&body).unwrap();
         assert!(v.is_empty());
     }
@@ -488,22 +500,33 @@ mod tests {
         };
 
         let app = create_router(state.clone());
-        let resp = app.oneshot(
-            axum::http::Request::builder()
-                .method("POST")
-                .uri("/v1/scenes")
-                .header("Content-Type", "application/json")
-                .body(Body::from(serde_json::to_string(&scene).unwrap()))
-                .unwrap(),
-        ).await.unwrap();
+        let resp = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/v1/scenes")
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(serde_json::to_string(&scene).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(resp.status(), StatusCode::CREATED);
 
         let app = create_router(state);
-        let resp = app.oneshot(
-            axum::http::Request::builder().uri("/v1/scenes/tavern").body(Body::empty()).unwrap()
-        ).await.unwrap();
+        let resp = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/v1/scenes/tavern")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(v["scene_id"], "tavern");
     }
@@ -512,9 +535,15 @@ mod tests {
     async fn test_ms3_get_scene_404() {
         let (state, _tmp) = make_state_no_key();
         let app = create_router(state);
-        let resp = app.oneshot(
-            axum::http::Request::builder().uri("/v1/scenes/nonexistent").body(Body::empty()).unwrap()
-        ).await.unwrap();
+        let resp = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/v1/scenes/nonexistent")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 
@@ -533,16 +562,21 @@ mod tests {
 
         let app = create_router(state);
         let body = serde_json::json!({"character_id": "ranger", "intro": "Forest ranger"});
-        let resp = app.oneshot(
-            axum::http::Request::builder()
-                .method("POST")
-                .uri("/v1/scenes/forest/characters")
-                .header("Content-Type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
-        ).await.unwrap();
+        let resp = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/v1/scenes/forest/characters")
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(serde_json::to_string(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
-        let resp_body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let resp_body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let v: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
         assert_eq!(v["character_count"], 1);
     }
@@ -575,8 +609,11 @@ mod tests {
                 {"key": "hp", "type": "number", "min": 0, "max": 100, "label": "生命值"}
             ]
         });
-        std::fs::write(state_dir.join("schema.json"), serde_json::to_string(&schema).unwrap())
-            .unwrap();
+        std::fs::write(
+            state_dir.join("schema.json"),
+            serde_json::to_string(&schema).unwrap(),
+        )
+        .unwrap();
 
         let app = create_router(state);
         let resp = app
@@ -589,7 +626,9 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(v["fields"][0]["key"], "hp");
         assert_eq!(v["fields"][0]["max"], 100);
@@ -821,7 +860,10 @@ mod tests_dx4 {
     fn test_dx4_fails_without_auth_or_connect_info() {
         let ext = UserOrIpKeyExtractor;
         let req = req_no_auth();
-        assert!(ext.extract(&req).is_err(), "should fail without auth or ConnectInfo");
+        assert!(
+            ext.extract(&req).is_err(),
+            "should fail without auth or ConnectInfo"
+        );
     }
 
     #[test]

@@ -5,21 +5,36 @@ mod session;
 mod utils;
 
 pub use migrations::{migrate_legacy_char_dirs, migrate_legacy_presets};
-pub use paths::{
-    char_state_dir, char_state_history_path,
-    character_dir, ensure_data_dirs, list_characters, list_presets, resolve_data_root,
-    // DX-1: per-user data root
-    resolve_effective_root,
-    // M_MS: scene paths
-    list_scenes, scene_dir, scene_history_dir, scene_json_path, scene_memory_dir,
-    scene_world_dir, scene_world_lorebook_path,
-    // M_UP: user persona paths
-    list_users, user_dir, user_persona_lock_path, user_persona_path,
-    user_state_dir, user_state_history_path, user_state_live_path,
-};
 pub(crate) use paths::{
     char_card_dir, char_gating_dir, char_greetings_dir, char_world_dir, char_world_lorebook_path,
     preset_json_path,
+};
+pub use paths::{
+    char_state_dir,
+    char_state_history_path,
+    character_dir,
+    ensure_data_dirs,
+    list_characters,
+    list_presets,
+    // M_MS: scene paths
+    list_scenes,
+    // M_UP: user persona paths
+    list_users,
+    resolve_data_root,
+    // DX-1: per-user data root
+    resolve_effective_root,
+    scene_dir,
+    scene_history_dir,
+    scene_json_path,
+    scene_memory_dir,
+    scene_world_dir,
+    scene_world_lorebook_path,
+    user_dir,
+    user_persona_lock_path,
+    user_persona_path,
+    user_state_dir,
+    user_state_history_path,
+    user_state_live_path,
 };
 pub use security::{safe_resolve_for_write, safe_resolve_under_data_root, validate_id_segment};
 pub use session::{create_session, list_sessions, resolve_session_dir, session_dir};
@@ -27,8 +42,8 @@ pub(crate) use utils::strip_utf8_bom;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::paths::{char_analysis_dir, char_history_dir, preset_dir, preset_regex_dir};
+    use super::*;
     use std::fs;
     use tempfile::tempdir;
 
@@ -74,8 +89,7 @@ mod tests {
         let root = tmp.path();
         assert!(safe_resolve_under_data_root(root, "/etc/passwd").is_err());
         assert!(
-            safe_resolve_under_data_root(root, "\\Windows\\System32\\drivers\\etc\\hosts")
-                .is_err()
+            safe_resolve_under_data_root(root, "\\Windows\\System32\\drivers\\etc\\hosts").is_err()
         );
         assert!(
             safe_resolve_under_data_root(root, "C:\\Windows\\System32\\drivers\\etc\\hosts")
@@ -201,7 +215,10 @@ mod tests {
         );
 
         assert!(session_root.exists(), "sessions/{{uuid}}/ 仍保留");
-        assert!(!session_root.join("current.md").exists(), "current.md 已移走");
+        assert!(
+            !session_root.join("current.md").exists(),
+            "current.md 已移走"
+        );
         assert!(!session_root.join("volumes").exists(), "volumes/ 已移走");
     }
 

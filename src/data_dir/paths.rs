@@ -394,7 +394,10 @@ pub fn scene_json_path(root: &Path, scene_id: &crate::types::SceneId) -> PathBuf
 }
 
 /// `scenes/{scene_id}/world/` directory, created on demand.
-pub fn scene_world_dir(root: &Path, scene_id: &crate::types::SceneId) -> Result<PathBuf, AirpError> {
+pub fn scene_world_dir(
+    root: &Path,
+    scene_id: &crate::types::SceneId,
+) -> Result<PathBuf, AirpError> {
     let dir = scene_dir(root, scene_id).join("world");
     fs::create_dir_all(&dir)?;
     Ok(dir)
@@ -402,18 +405,26 @@ pub fn scene_world_dir(root: &Path, scene_id: &crate::types::SceneId) -> Result<
 
 /// `scenes/{scene_id}/world/lorebook.json` path (not auto-created).
 pub fn scene_world_lorebook_path(root: &Path, scene_id: &crate::types::SceneId) -> PathBuf {
-    scene_dir(root, scene_id).join("world").join("lorebook.json")
+    scene_dir(root, scene_id)
+        .join("world")
+        .join("lorebook.json")
 }
 
 /// `scenes/{scene_id}/history/` directory, created on demand.
-pub fn scene_history_dir(root: &Path, scene_id: &crate::types::SceneId) -> Result<PathBuf, AirpError> {
+pub fn scene_history_dir(
+    root: &Path,
+    scene_id: &crate::types::SceneId,
+) -> Result<PathBuf, AirpError> {
     let dir = scene_dir(root, scene_id).join("history");
     fs::create_dir_all(&dir)?;
     Ok(dir)
 }
 
 /// `scenes/{scene_id}/memory/` directory, created on demand.
-pub fn scene_memory_dir(root: &Path, scene_id: &crate::types::SceneId) -> Result<PathBuf, AirpError> {
+pub fn scene_memory_dir(
+    root: &Path,
+    scene_id: &crate::types::SceneId,
+) -> Result<PathBuf, AirpError> {
     let dir = scene_dir(root, scene_id).join("memory");
     fs::create_dir_all(&dir)?;
     Ok(dir)

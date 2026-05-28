@@ -238,7 +238,11 @@ mod tests {
         // CF-5: characters/{id}/world/extra/*.json 应被转换为 .md
         let tmp = tempdir().unwrap();
         let root = tmp.path();
-        let extra = root.join("characters").join("alice").join("world").join("extra");
+        let extra = root
+            .join("characters")
+            .join("alice")
+            .join("world")
+            .join("extra");
         fs::create_dir_all(&extra).unwrap();
         fs::write(extra.join("custom_wb.json"), SAMPLE_WB).unwrap();
 
@@ -269,7 +273,11 @@ mod tests {
         // 已存在 .md 时跳过转换
         let tmp = tempdir().unwrap();
         let root = tmp.path();
-        let extra = root.join("characters").join("carol").join("world").join("extra");
+        let extra = root
+            .join("characters")
+            .join("carol")
+            .join("world")
+            .join("extra");
         fs::create_dir_all(&extra).unwrap();
         fs::write(extra.join("x.json"), SAMPLE_WB).unwrap();
         fs::write(extra.join("x.md"), "USER_EDITED").unwrap();
@@ -293,6 +301,9 @@ mod tests {
 
         // 主 lorebook 仍保持 JSON，无对应 MD
         assert!(world.join("lorebook.json").exists());
-        assert!(!world.join("lorebook.md").exists(), "主 lorebook 不该被转 MD");
+        assert!(
+            !world.join("lorebook.md").exists(),
+            "主 lorebook 不该被转 MD"
+        );
     }
 }

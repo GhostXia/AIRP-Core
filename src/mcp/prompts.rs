@@ -112,9 +112,8 @@ impl AirpMcpServer {
         preset_id: Option<&str>,
         user_name: &str,
     ) -> Result<String, ErrorData> {
-        crate::data_dir::validate_id_segment(character_id).map_err(|e| {
-            ErrorData::invalid_params(format!("非法 character_id: {}", e), None)
-        })?;
+        crate::data_dir::validate_id_segment(character_id)
+            .map_err(|e| ErrorData::invalid_params(format!("非法 character_id: {}", e), None))?;
         let char_dir = self.data_root.join("characters").join(character_id);
         let card_path = if char_dir.join("card").join("raw.json").exists() {
             char_dir.join("card").join("raw.json")
@@ -130,8 +129,7 @@ impl AirpMcpServer {
             .map_err(|e| ErrorData::internal_error(format!("读 card 失败: {}", e), None))?;
         let card_json = crate::data_dir::strip_utf8_bom(&card_json).to_owned();
 
-        let lb_path =
-            crate::data_dir::char_world_lorebook_path(&self.data_root, character_id);
+        let lb_path = crate::data_dir::char_world_lorebook_path(&self.data_root, character_id);
         let lorebook_json = if lb_path.exists() {
             std::fs::read_to_string(&lb_path)
                 .ok()

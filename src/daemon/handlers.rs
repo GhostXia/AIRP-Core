@@ -220,10 +220,8 @@ pub(super) async fn chat_completion(
     let (quota_config, effective_root) = {
         let cfg = state.config.read().unwrap_or_else(|e| e.into_inner());
         let quota = cfg.quota.clone();
-        let root = crate::data_dir::resolve_effective_root(
-            &state.data_root,
-            payload.user_id.as_deref(),
-        )?;
+        let root =
+            crate::data_dir::resolve_effective_root(&state.data_root, payload.user_id.as_deref())?;
         (quota, root)
     };
     crate::quota::check_and_increment(&effective_root, &quota_config)?;
@@ -335,11 +333,7 @@ pub(super) async fn reextract_character_assets(
 ///
 /// 失败路径 `tracing::warn` 而非返回错误——导入主路径已完成，资产解包是增值操作。
 /// `pub(crate)` 用于 M_MCP MCP-2 复用（避免与 daemon::import_character 代码漂移）。
-pub(crate) fn extract_card_assets(
-    data_root: &std::path::Path,
-    character_id: &str,
-    json_str: &str,
-) {
+pub(crate) fn extract_card_assets(data_root: &std::path::Path, character_id: &str, json_str: &str) {
     use crate::orchestrator::card::TavernCardV2;
 
     let card: TavernCardV2 = match serde_json::from_str(json_str) {
@@ -401,7 +395,10 @@ pub(crate) fn extract_card_assets(
                 }
                 Err(e) => tracing::warn!(err = %e, "CF-7: 序列化 Lorebook 失败"),
             },
-            None => tracing::warn!(character_id, "CF-7: character_book 解析失败，跳过 lorebook 写入"),
+            None => tracing::warn!(
+                character_id,
+                "CF-7: character_book 解析失败，跳过 lorebook 写入"
+            ),
         }
     }
 }
@@ -495,8 +492,7 @@ pub(super) async fn get_character_state(
         Ok(id) => id,
         Err(_) => return StatusCode::BAD_REQUEST.into_response(),
     };
-    let live_path =
-        data_dir::char_state_dir(&state.data_root, char_id.as_str()).join("live.json");
+    let live_path = data_dir::char_state_dir(&state.data_root, char_id.as_str()).join("live.json");
     match fs::read_to_string(&live_path) {
         Ok(json) => ([(header::CONTENT_TYPE, "application/json")], json).into_response(),
         Err(_) => StatusCode::NOT_FOUND.into_response(),
@@ -536,8 +532,7 @@ pub(super) async fn get_character_state_history(
         .unwrap_or(50)
         .clamp(1, 1000);
 
-    let history_path =
-        data_dir::char_state_history_path(&state.data_root, char_id.as_str());
+    let history_path = data_dir::char_state_history_path(&state.data_root, char_id.as_str());
     let Ok(text) = fs::read_to_string(&history_path) else {
         return StatusCode::NOT_FOUND.into_response();
     };

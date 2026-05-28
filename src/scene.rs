@@ -48,7 +48,9 @@ pub struct SceneConfig {
 
 impl SceneConfig {
     pub fn primary(&self) -> Option<&CharacterEntry> {
-        self.characters.iter().find(|c| c.role == CharacterRole::Primary)
+        self.characters
+            .iter()
+            .find(|c| c.role == CharacterRole::Primary)
     }
 
     pub fn load(root: &Path, scene_id: &SceneId) -> Result<Self, AirpError> {

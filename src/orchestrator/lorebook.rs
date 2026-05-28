@@ -290,17 +290,29 @@ mod tests {
 
     #[test]
     fn test_ms5_merge_lorebooks_deduplicates_by_content() {
-        let lb1 = Lorebook { entries: vec![entry(&["A"], "shared content", Some(10))] };
-        let lb2 = Lorebook { entries: vec![entry(&["B"], "shared content", Some(20))] };
+        let lb1 = Lorebook {
+            entries: vec![entry(&["A"], "shared content", Some(10))],
+        };
+        let lb2 = Lorebook {
+            entries: vec![entry(&["B"], "shared content", Some(20))],
+        };
         let merged = super::merge_lorebooks(&[lb1, lb2]);
         // Second entry with same content should be dropped
-        assert_eq!(merged.entries.len(), 1, "duplicate content should be deduped");
+        assert_eq!(
+            merged.entries.len(),
+            1,
+            "duplicate content should be deduped"
+        );
     }
 
     #[test]
     fn test_ms5_merge_lorebooks_preserves_all_unique() {
-        let lb1 = Lorebook { entries: vec![entry(&["A"], "content A", Some(5))] };
-        let lb2 = Lorebook { entries: vec![entry(&["B"], "content B", Some(50))] };
+        let lb1 = Lorebook {
+            entries: vec![entry(&["A"], "content A", Some(5))],
+        };
+        let lb2 = Lorebook {
+            entries: vec![entry(&["B"], "content B", Some(50))],
+        };
         let merged = super::merge_lorebooks(&[lb1, lb2]);
         assert_eq!(merged.entries.len(), 2);
         // Higher priority B should come first

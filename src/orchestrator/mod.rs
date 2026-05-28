@@ -285,10 +285,11 @@ fn inject_live_state(data_root: &Path, character_id: &str, prompt: &mut String) 
     };
 
     // Try to load schema for richer rendering (LS-7/8 enhancement).
-    let schema_fields: Option<Vec<serde_json::Value>> = std::fs::read_to_string(state_dir.join("schema.json"))
-        .ok()
-        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-        .and_then(|v| v["fields"].as_array().cloned());
+    let schema_fields: Option<Vec<serde_json::Value>> =
+        std::fs::read_to_string(state_dir.join("schema.json"))
+            .ok()
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+            .and_then(|v| v["fields"].as_array().cloned());
 
     prompt.push_str("[Current State]:\n");
 
@@ -299,7 +300,8 @@ fn inject_live_state(data_root: &Path, character_id: &str, prompt: &mut String) 
             let label = field["label"].as_str().unwrap_or(key);
             if let Some(val) = state.get(key) {
                 // If there's a _max companion in state or schema, append it
-                let max_val = state.get(format!("{}_max", key).as_str())
+                let max_val = state
+                    .get(format!("{}_max", key).as_str())
                     .or_else(|| field.get("max"))
                     .filter(|v| v.is_number());
                 if let Some(mv) = max_val {
@@ -314,9 +316,7 @@ fn inject_live_state(data_root: &Path, character_id: &str, prompt: &mut String) 
             prompt.push_str(&format!("(raw: {})\n", compact));
         }
         // Build expected keys list for the instruction
-        let keys: Vec<&str> = fields.iter()
-            .filter_map(|f| f["key"].as_str())
-            .collect();
+        let keys: Vec<&str> = fields.iter().filter_map(|f| f["key"].as_str()).collect();
         prompt.push_str(&format!(
             "When any state value changes, output the complete updated state at the very end as: \
              <state>{{...}}</state> (keys: {})\n\n",
@@ -430,10 +430,7 @@ pub fn build_multi_char_system_prompt(
         prompt.push_str(&scene.format_hint);
         prompt.push('\n');
     }
-    prompt.push_str(&format!(
-        "用户扮演 {}，AI 不代写用户台词。\n",
-        user_name
-    ));
+    prompt.push_str(&format!("用户扮演 {}，AI 不代写用户台词。\n", user_name));
 
     prompt
 }
@@ -517,9 +514,15 @@ mod tests {
 
         let mut prompt = String::from("Base.");
         super::inject_live_state(tmp.path(), "hero", &mut prompt);
-        assert!(prompt.contains("[Current State]"), "should inject [Current State] header");
+        assert!(
+            prompt.contains("[Current State]"),
+            "should inject [Current State] header"
+        );
         assert!(prompt.contains("\"hp\": 80"), "should include state values");
-        assert!(prompt.contains("<state>"), "should include state tag instruction");
+        assert!(
+            prompt.contains("<state>"),
+            "should include state tag instruction"
+        );
     }
 
     // MS-9 tests for build_multi_char_system_prompt
@@ -533,8 +536,16 @@ mod tests {
             scene_id: SceneId::new("tavern").unwrap(),
             description: "茶馆初春".to_string(),
             characters: vec![
-                CharacterEntry { character_id: "alice".to_string(), role: CharacterRole::Primary, intro: "剑客".to_string() },
-                CharacterEntry { character_id: "bob".to_string(), role: CharacterRole::Npc, intro: "掌柜".to_string() },
+                CharacterEntry {
+                    character_id: "alice".to_string(),
+                    role: CharacterRole::Primary,
+                    intro: "剑客".to_string(),
+                },
+                CharacterEntry {
+                    character_id: "bob".to_string(),
+                    role: CharacterRole::Npc,
+                    intro: "掌柜".to_string(),
+                },
             ],
             narrator_style: "third_person_limited".to_string(),
             lorebook_merge: LorebookMerge::Union,
@@ -549,12 +560,21 @@ mod tests {
 
         assert!(prompt.contains("[场景设定]"), "should have scene section");
         assert!(prompt.contains("茶馆初春"), "should have scene description");
-        assert!(prompt.contains("[在场角色]"), "should have characters section");
-        assert!(prompt.contains("爱丽丝"), "should have alice's name from card");
+        assert!(
+            prompt.contains("[在场角色]"),
+            "should have characters section"
+        );
+        assert!(
+            prompt.contains("爱丽丝"),
+            "should have alice's name from card"
+        );
         assert!(prompt.contains("（主视角）"), "should mark primary role");
         assert!(prompt.contains("鲍勃"), "should have bob's name from card");
         assert!(prompt.contains("（NPC）"), "should mark npc role");
-        assert!(prompt.contains("[格式规则]"), "should have format hint section");
+        assert!(
+            prompt.contains("[格式规则]"),
+            "should have format hint section"
+        );
         assert!(prompt.contains("旅人"), "should mention user name");
     }
 
@@ -566,16 +586,21 @@ mod tests {
         let scene = SceneConfig {
             scene_id: SceneId::new("void").unwrap(),
             description: String::new(),
-            characters: vec![
-                CharacterEntry { character_id: "char1".to_string(), role: CharacterRole::Npc, intro: String::new() },
-            ],
+            characters: vec![CharacterEntry {
+                character_id: "char1".to_string(),
+                role: CharacterRole::Npc,
+                intro: String::new(),
+            }],
             narrator_style: String::new(),
             lorebook_merge: LorebookMerge::Union,
             format_hint: String::new(),
         };
 
         let prompt = super::build_multi_char_system_prompt(&scene, &[], "", "User");
-        assert!(prompt.contains("char1"), "should fall back to character_id when no card");
+        assert!(
+            prompt.contains("char1"),
+            "should fall back to character_id when no card"
+        );
     }
 
     #[test]
@@ -586,9 +611,11 @@ mod tests {
         let scene = SceneConfig {
             scene_id: SceneId::new("test").unwrap(),
             description: String::new(),
-            characters: vec![
-                CharacterEntry { character_id: "x".to_string(), role: CharacterRole::Primary, intro: String::new() },
-            ],
+            characters: vec![CharacterEntry {
+                character_id: "x".to_string(),
+                role: CharacterRole::Primary,
+                intro: String::new(),
+            }],
             narrator_style: String::new(),
             lorebook_merge: LorebookMerge::Union,
             format_hint: String::new(),
@@ -605,23 +632,43 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let state_dir = crate::data_dir::char_state_dir(tmp.path(), "hero");
         std::fs::create_dir_all(&state_dir).unwrap();
-        std::fs::write(state_dir.join("live.json"), r#"{"hp":75,"hp_max":100,"location":"tavern"}"#).unwrap();
+        std::fs::write(
+            state_dir.join("live.json"),
+            r#"{"hp":75,"hp_max":100,"location":"tavern"}"#,
+        )
+        .unwrap();
         let schema = serde_json::json!({
             "fields": [
                 {"key": "hp", "type": "number", "min": 0, "max": 100, "label": "生命值"},
                 {"key": "location", "type": "string", "label": "当前位置"}
             ]
         });
-        std::fs::write(state_dir.join("schema.json"), serde_json::to_string(&schema).unwrap()).unwrap();
+        std::fs::write(
+            state_dir.join("schema.json"),
+            serde_json::to_string(&schema).unwrap(),
+        )
+        .unwrap();
 
         let mut prompt = String::from("Base.");
         super::inject_live_state(tmp.path(), "hero", &mut prompt);
-        assert!(prompt.contains("[Current State]"), "should inject [Current State] header");
+        assert!(
+            prompt.contains("[Current State]"),
+            "should inject [Current State] header"
+        );
         assert!(prompt.contains("生命值 (hp)"), "should use schema label");
-        assert!(prompt.contains("当前位置 (location)"), "should use schema label for string field");
+        assert!(
+            prompt.contains("当前位置 (location)"),
+            "should use schema label for string field"
+        );
         assert!(prompt.contains("75/100"), "should show hp/max");
-        assert!(prompt.contains("keys: hp, location"), "should list expected keys in instruction");
-        assert!(prompt.contains("<state>"), "should include state tag instruction");
+        assert!(
+            prompt.contains("keys: hp, location"),
+            "should list expected keys in instruction"
+        );
+        assert!(
+            prompt.contains("<state>"),
+            "should include state tag instruction"
+        );
     }
 
     #[test]

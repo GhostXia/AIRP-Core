@@ -1,4 +1,4 @@
-﻿use super::*;
+use super::*;
 use rmcp::model::ResourceContents;
 use std::fs;
 use std::path::PathBuf;
@@ -59,8 +59,8 @@ fn test_mcp2_import_card_json() {
         character_id: "凌欺霜".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
-            idempotency_key: None,
-        };
+        idempotency_key: None,
+    };
     let out = s.import_card(Parameters(req)).unwrap();
     let v: serde_json::Value = serde_json::from_str(&out).unwrap();
     assert_eq!(v["character_id"], "凌欺霜");
@@ -82,8 +82,8 @@ fn test_mcp2_import_card_missing_source() {
         character_id: "x".to_string(),
         card_json: None,
         card_png_base64: None,
-            idempotency_key: None,
-        };
+        idempotency_key: None,
+    };
     assert!(s.import_card(Parameters(req)).is_err());
 }
 
@@ -95,8 +95,8 @@ fn test_mcp2_apply_lorebook_triggered() {
         character_id: "凌欺霜".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
-            idempotency_key: None,
-        }))
+        idempotency_key: None,
+    }))
     .unwrap();
     let out = s
         .apply_lorebook(Parameters(ApplyLorebookRequest {
@@ -115,8 +115,8 @@ fn test_mcp2_apply_lorebook_no_match() {
         character_id: "凌欺霜".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
-            idempotency_key: None,
-        }))
+        idempotency_key: None,
+    }))
     .unwrap();
     let out = s
         .apply_lorebook(Parameters(ApplyLorebookRequest {
@@ -149,8 +149,8 @@ fn test_mcp2_start_session_returns_prompt_and_greetings() {
         character_id: "凌欺霜".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
-            idempotency_key: None,
-        }))
+        idempotency_key: None,
+    }))
     .unwrap();
 
     let out = s
@@ -166,7 +166,11 @@ fn test_mcp2_start_session_returns_prompt_and_greetings() {
     assert_eq!(v["character_id"], "凌欺霜");
     assert_eq!(v["greetings_count"], 3);
     let sp = v["system_prompt"].as_str().unwrap();
-    assert!(sp.contains("凌欺霜") || sp.contains("天剑阁"), "sp = {}", sp);
+    assert!(
+        sp.contains("凌欺霜") || sp.contains("天剑阁"),
+        "sp = {}",
+        sp
+    );
     assert!(v["session_dir"].as_str().unwrap().contains("memory"));
 }
 
@@ -180,15 +184,15 @@ fn test_mcp3_dispatch_characters_list() {
         character_id: "凌欺霜".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
-            idempotency_key: None,
-        }))
+        idempotency_key: None,
+    }))
     .unwrap();
     s.import_card(Parameters(ImportCardRequest {
         character_id: "alice".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
-            idempotency_key: None,
-        }))
+        idempotency_key: None,
+    }))
     .unwrap();
 
     let contents = s.dispatch_resource("airp://characters").unwrap();
@@ -210,8 +214,8 @@ fn test_mcp3_dispatch_card() {
         character_id: "凌欺霜".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
-            idempotency_key: None,
-        }))
+        idempotency_key: None,
+    }))
     .unwrap();
 
     let contents = s
@@ -233,8 +237,8 @@ fn test_mcp3_dispatch_lorebook() {
         character_id: "凌欺霜".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
-            idempotency_key: None,
-        }))
+        idempotency_key: None,
+    }))
     .unwrap();
 
     let contents = s
@@ -295,11 +299,15 @@ fn test_mcp4_assemble_system_prompt_works() {
         character_id: "凌欺霜".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
-            idempotency_key: None,
-        }))
+        idempotency_key: None,
+    }))
     .unwrap();
     let sp = s.assemble_system_prompt("凌欺霜", None, "玩家").unwrap();
-    assert!(sp.contains("凌欺霜") || sp.contains("天剑阁"), "sp = {}", sp);
+    assert!(
+        sp.contains("凌欺霜") || sp.contains("天剑阁"),
+        "sp = {}",
+        sp
+    );
 }
 
 #[test]
@@ -326,7 +334,9 @@ fn test_history_resource_empty_when_no_file() {
     let s = AirpMcpServer::new(tmp.path().to_path_buf());
     fs::create_dir_all(tmp.path().join("characters").join("alice")).unwrap();
 
-    let contents = s.dispatch_resource("airp://characters/alice/history").unwrap();
+    let contents = s
+        .dispatch_resource("airp://characters/alice/history")
+        .unwrap();
     let text = match &contents[0] {
         ResourceContents::TextResourceContents { text, .. } => text.clone(),
         _ => panic!("expected text"),
@@ -351,7 +361,9 @@ fn test_history_resource_returns_messages() {
     };
     log.append(tmp.path(), msg).unwrap();
 
-    let contents = s.dispatch_resource("airp://characters/alice/history").unwrap();
+    let contents = s
+        .dispatch_resource("airp://characters/alice/history")
+        .unwrap();
     let text = match &contents[0] {
         ResourceContents::TextResourceContents { text, .. } => text.clone(),
         _ => panic!("expected text"),
@@ -368,7 +380,9 @@ fn test_history_resource_returns_messages() {
 fn test_ds5_import_preset_ok() {
     let tmp = tempdir().unwrap();
     let s = AirpMcpServer::new(tmp.path().to_path_buf());
-    let preset_json = serde_json::json!({"prompts": [{"identifier": "main", "content": "You are {{char}}."}]}).to_string();
+    let preset_json =
+        serde_json::json!({"prompts": [{"identifier": "main", "content": "You are {{char}}."}]})
+            .to_string();
     let out = s
         .import_preset(Parameters(ImportPresetRequest {
             preset_id: "my_preset".to_string(),
@@ -380,7 +394,11 @@ fn test_ds5_import_preset_ok() {
     assert_eq!(v["preset_id"], "my_preset");
     assert!(v["bytes_written"].as_u64().unwrap() > 0);
 
-    let written = tmp.path().join("presets").join("my_preset").join("preset.json");
+    let written = tmp
+        .path()
+        .join("presets")
+        .join("my_preset")
+        .join("preset.json");
     assert!(written.exists());
     assert_eq!(fs::read_to_string(&written).unwrap(), preset_json);
 }
@@ -392,8 +410,8 @@ fn test_ds5_import_preset_invalid_json() {
     let r = s.import_preset(Parameters(ImportPresetRequest {
         preset_id: "bad".to_string(),
         preset_json: "not-json{{".to_string(),
-            idempotency_key: None,
-        }));
+        idempotency_key: None,
+    }));
     assert!(r.is_err());
 }
 
@@ -415,7 +433,9 @@ fn test_ds5_import_preset_bad_id() {
 fn test_ds3_artifacts_empty_when_no_dir() {
     let tmp = tempdir().unwrap();
     let s = AirpMcpServer::new(tmp.path().to_path_buf());
-    let contents = s.dispatch_resource("airp://presets/nonexistent/artifacts").unwrap();
+    let contents = s
+        .dispatch_resource("airp://presets/nonexistent/artifacts")
+        .unwrap();
     let text = match &contents[0] {
         ResourceContents::TextResourceContents { text, .. } => text.clone(),
         _ => panic!("expected text"),
@@ -440,15 +460,15 @@ fn test_ds3_artifacts_lists_after_write() {
         preset_id: "p1".to_string(),
         artifact_path: "analysis/summary.md".to_string(),
         content: "# Summary".to_string(),
-            idempotency_key: None,
-        }))
+        idempotency_key: None,
+    }))
     .unwrap();
     s.write_preset_artifact(Parameters(WritePresetArtifactRequest {
         preset_id: "p1".to_string(),
         artifact_path: "regex/filters.json".to_string(),
         content: "[]".to_string(),
-            idempotency_key: None,
-        }))
+        idempotency_key: None,
+    }))
     .unwrap();
 
     let contents = s.dispatch_resource("airp://presets/p1/artifacts").unwrap();
@@ -458,8 +478,16 @@ fn test_ds3_artifacts_lists_after_write() {
     };
     let arr: Vec<String> = serde_json::from_str(&text).unwrap();
     assert!(!arr.contains(&"preset.json".to_string()));
-    assert!(arr.contains(&"analysis/summary.md".to_string()), "arr={:?}", arr);
-    assert!(arr.contains(&"regex/filters.json".to_string()), "arr={:?}", arr);
+    assert!(
+        arr.contains(&"analysis/summary.md".to_string()),
+        "arr={:?}",
+        arr
+    );
+    assert!(
+        arr.contains(&"regex/filters.json".to_string()),
+        "arr={:?}",
+        arr
+    );
 }
 
 // ── character artifacts resource ─────────────────────────────────────────
@@ -472,8 +500,8 @@ fn test_character_artifacts_empty_when_only_system_files() {
         character_id: "alice".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
-            idempotency_key: None,
-        }))
+        idempotency_key: None,
+    }))
     .unwrap();
 
     let contents = s
@@ -500,16 +528,16 @@ fn test_character_artifacts_after_write() {
         character_id: "alice".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
-            idempotency_key: None,
-        }))
+        idempotency_key: None,
+    }))
     .unwrap();
 
     s.write_character_artifact(Parameters(WriteCharacterArtifactRequest {
         character_id: "alice".to_string(),
         artifact_path: "analysis/profile.md".to_string(),
         content: "# Profile".to_string(),
-            idempotency_key: None,
-        }))
+        idempotency_key: None,
+    }))
     .unwrap();
     s.write_character_artifact(Parameters(WriteCharacterArtifactRequest {
         character_id: "alice".to_string(),
@@ -630,7 +658,13 @@ fn test_pr6_remove_ok() {
         .unwrap();
     let v: serde_json::Value = serde_json::from_str(&out).unwrap();
     assert_eq!(v["removed"], true);
-    assert!(!tmp.path().join("presets").join("p1").join("regex").join("a.json").exists());
+    assert!(!tmp
+        .path()
+        .join("presets")
+        .join("p1")
+        .join("regex")
+        .join("a.json")
+        .exists());
 }
 
 #[test]
@@ -672,7 +706,14 @@ fn test_pr7_set_enabled_toggles_disabled() {
     assert_eq!(v["enabled"], false);
     assert_eq!(v["disabled"], true);
 
-    let content = fs::read_to_string(tmp.path().join("presets").join("p1").join("regex").join("a.json")).unwrap();
+    let content = fs::read_to_string(
+        tmp.path()
+            .join("presets")
+            .join("p1")
+            .join("regex")
+            .join("a.json"),
+    )
+    .unwrap();
     let script: serde_json::Value = serde_json::from_str(&content).unwrap();
     assert_eq!(script["disabled"], true);
 }
@@ -690,7 +731,14 @@ fn test_pr7_set_enabled_true_clears_disabled() {
     }))
     .unwrap();
 
-    let content = fs::read_to_string(tmp.path().join("presets").join("p1").join("regex").join("b.json")).unwrap();
+    let content = fs::read_to_string(
+        tmp.path()
+            .join("presets")
+            .join("p1")
+            .join("regex")
+            .join("b.json"),
+    )
+    .unwrap();
     let script: serde_json::Value = serde_json::from_str(&content).unwrap();
     assert_eq!(script["disabled"], false);
 }
@@ -753,8 +801,8 @@ fn test_mcp2_start_session_missing_card() {
         session_id: None,
         preset_id: None,
         user_name: "User".to_string(),
-            idempotency_key: None,
-        }));
+        idempotency_key: None,
+    }));
     assert!(r.is_err());
 }
 
@@ -774,7 +822,11 @@ fn test_ds4_small_preset_no_header() {
         ResourceContents::TextResourceContents { text, .. } => text.clone(),
         _ => panic!("expected text resource"),
     };
-    assert!(!text.starts_with("[PARTIAL"), "unexpected header: {}", &text[..text.len().min(100)]);
+    assert!(
+        !text.starts_with("[PARTIAL"),
+        "unexpected header: {}",
+        &text[..text.len().min(100)]
+    );
     assert!(text.contains("prompts"));
 }
 
@@ -792,7 +844,11 @@ fn test_ds4_large_preset_gets_header() {
         ResourceContents::TextResourceContents { text, .. } => text.clone(),
         _ => panic!("expected text resource"),
     };
-    assert!(text.starts_with("[PARTIAL"), "expected [PARTIAL] header, got: {}", &text[..text.len().min(120)]);
+    assert!(
+        text.starts_with("[PARTIAL"),
+        "expected [PARTIAL] header, got: {}",
+        &text[..text.len().min(120)]
+    );
     assert!(text.contains("total=200001"), "expected total in header");
 }
 
@@ -814,7 +870,12 @@ fn test_ds4_offset_and_limit_params() {
     };
     assert!(text.starts_with("[PARTIAL"), "expected [PARTIAL] header");
     let body = text.lines().skip(1).collect::<Vec<_>>().join("\n");
-    assert_eq!(body, "1".repeat(100), "expected 100 '1' chars, got: {:?}", &body[..body.len().min(20)]);
+    assert_eq!(
+        body,
+        "1".repeat(100),
+        "expected 100 '1' chars, got: {:?}",
+        &body[..body.len().min(20)]
+    );
 }
 
 // ── DS-6/7: get_recent_context + append_message ──────────────────────────
@@ -944,10 +1005,7 @@ fn test_ds8_update_state_merge() {
     use rmcp::handler::server::wrapper::Parameters;
     let tmp = tempdir().unwrap();
     let s = AirpMcpServer::new(tmp.path().to_path_buf());
-    std::fs::create_dir_all(
-        tmp.path().join("characters").join("hero").join("state"),
-    )
-    .unwrap();
+    std::fs::create_dir_all(tmp.path().join("characters").join("hero").join("state")).unwrap();
 
     let r1 = s
         .update_state_impl(Parameters(UpdateStateRequest {
@@ -981,16 +1039,13 @@ fn test_ds8_update_state_overwrite() {
     use rmcp::handler::server::wrapper::Parameters;
     let tmp = tempdir().unwrap();
     let s = AirpMcpServer::new(tmp.path().to_path_buf());
-    std::fs::create_dir_all(
-        tmp.path().join("characters").join("hero2").join("state"),
-    )
-    .unwrap();
+    std::fs::create_dir_all(tmp.path().join("characters").join("hero2").join("state")).unwrap();
 
     s.update_state_impl(Parameters(UpdateStateRequest {
         character_id: "hero2".to_string(),
         state_json: r#"{"hp":100,"mp":50}"#.to_string(),
         overwrite: false,
-            idempotency_key: None,
+        idempotency_key: None,
     }))
     .unwrap();
 
@@ -1004,7 +1059,10 @@ fn test_ds8_update_state_overwrite() {
         .unwrap();
     let v: serde_json::Value = serde_json::from_str(&r).unwrap();
     assert_eq!(v["state"]["hp"], 30);
-    assert!(v["state"]["mp"].is_null(), "mp should be absent after overwrite");
+    assert!(
+        v["state"]["mp"].is_null(),
+        "mp should be absent after overwrite"
+    );
 }
 
 #[test]
@@ -1199,8 +1257,8 @@ fn test_ds10_list_sessions_after_create_session() {
         character_id: "sess_chr".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
-            idempotency_key: None,
-        }))
+        idempotency_key: None,
+    }))
     .unwrap();
 
     // Create a named session via data_dir
@@ -1254,10 +1312,7 @@ fn test_ds11_get_state_history_reads_newest_first() {
     let tmp = tempdir().unwrap();
     let s = AirpMcpServer::new(tmp.path().to_path_buf());
     // Write history via update_state (which appends to state/history.jsonl)
-    std::fs::create_dir_all(
-        tmp.path().join("characters").join("sh_hero").join("state"),
-    )
-    .unwrap();
+    std::fs::create_dir_all(tmp.path().join("characters").join("sh_hero").join("state")).unwrap();
 
     for (hp, mp) in &[(100u32, 50u32), (80, 45), (60, 40)] {
         s.update_state_impl(Parameters(UpdateStateRequest {
@@ -1287,10 +1342,7 @@ fn test_ds11_get_state_history_reads_newest_first() {
 fn test_ds11_get_state_history_n_limit() {
     let tmp = tempdir().unwrap();
     let s = AirpMcpServer::new(tmp.path().to_path_buf());
-    std::fs::create_dir_all(
-        tmp.path().join("characters").join("sh_lim").join("state"),
-    )
-    .unwrap();
+    std::fs::create_dir_all(tmp.path().join("characters").join("sh_lim").join("state")).unwrap();
 
     for i in 0..5u32 {
         s.update_state_impl(Parameters(UpdateStateRequest {
@@ -1703,10 +1755,13 @@ fn test_p1_import_card_idempotency() {
     let r2 = s
         .import_card_impl(Parameters(ImportCardRequest {
             character_id: "alice".to_string(),
-            card_json: Some(serde_json::json!({
-                "spec":"chara_card_v2",
-                "data":{"name":"DIFFERENT"}
-            }).to_string()),
+            card_json: Some(
+                serde_json::json!({
+                    "spec":"chara_card_v2",
+                    "data":{"name":"DIFFERENT"}
+                })
+                .to_string(),
+            ),
             card_png_base64: None,
             idempotency_key: Some("ic-key".to_string()),
         }))
@@ -1910,9 +1965,7 @@ fn test_p0_user_persona_resource_dispatch() {
         idempotency_key: None,
     }))
     .unwrap();
-    let contents = s
-        .dispatch_resource("airp://users/alice/persona")
-        .unwrap();
+    let contents = s.dispatch_resource("airp://users/alice/persona").unwrap();
     let text = match &contents[0] {
         rmcp::model::ResourceContents::TextResourceContents { text, .. } => text.clone(),
         _ => panic!("expected text resource"),
@@ -2250,7 +2303,9 @@ fn test_cli_dispatch_unknown_tool_errors_cleanly() {
 fn test_cli_dispatch_malformed_json_errors_with_tool_name() {
     let tmp = tempdir().unwrap();
     let s = AirpMcpServer::new(tmp.path().to_path_buf());
-    let err = s.call_tool_sync("import_card", "{not valid json").unwrap_err();
+    let err = s
+        .call_tool_sync("import_card", "{not valid json")
+        .unwrap_err();
     assert!(
         err.contains("import_card"),
         "parse error should echo tool name: {}",
@@ -2338,7 +2393,10 @@ fn test_audit_12_append_message_idempotency_dedups_retry() {
         }))
         .unwrap();
 
-    assert_eq!(resp1, resp2, "same idempotency key must return cached result");
+    assert_eq!(
+        resp1, resp2,
+        "same idempotency key must return cached result"
+    );
 
     // Verify only one message was actually written
     let v: serde_json::Value = serde_json::from_str(&resp2).unwrap();
@@ -2428,12 +2486,13 @@ fn test_audit_12_update_state_idempotency_dedups() {
     assert_eq!(r1, r2, "cached response must match original");
 
     // Verify state on disk was the original 50, not the retry 99
-    let live = std::fs::read_to_string(
-        tmp.path().join("characters/npc_us/state/live.json"),
-    )
-    .unwrap();
+    let live =
+        std::fs::read_to_string(tmp.path().join("characters/npc_us/state/live.json")).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&live).unwrap();
-    assert_eq!(parsed["hp"], 50, "retry with same key must not overwrite state");
+    assert_eq!(
+        parsed["hp"], 50,
+        "retry with same key must not overwrite state"
+    );
 }
 
 // ── AUDIT-6 / AUDIT-7: append_message soft hints ──────────────────────────
@@ -2457,9 +2516,7 @@ fn test_audit_6_short_message_no_seal_hint() {
     // No volume_seal hint when chat is tiny
     let hints = v["hints"].as_array().unwrap();
     assert!(
-        !hints
-            .iter()
-            .any(|h| h["kind"] == "volume_seal_recommended"),
+        !hints.iter().any(|h| h["kind"] == "volume_seal_recommended"),
         "tiny chat should not trigger volume_seal_recommended hint"
     );
 }
@@ -2567,14 +2624,18 @@ async fn test_audit_13_update_state_emits_no_panic_with_empty_subs() {
         character_id: "npc1".to_string(),
         state_json: serde_json::json!({"hp": 80}).to_string(),
         overwrite: false,
-            idempotency_key: None,
+        idempotency_key: None,
     }));
-    assert!(result.is_ok(), "update_state should succeed without subscribers");
+    assert!(
+        result.is_ok(),
+        "update_state should succeed without subscribers"
+    );
 
     // Verify state was actually written
     let live = tmp.path().join("characters/npc1/state/live.json");
     assert!(live.exists());
-    let content: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&live).unwrap()).unwrap();
+    let content: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&live).unwrap()).unwrap();
     assert_eq!(content["hp"], 80);
 }
 

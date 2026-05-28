@@ -223,7 +223,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             signal_task.abort();
             tracing::info!(?quit_reason, "MCP stdio server 已退出");
         }
-        Commands::Diagnose { data_dir, character_id, scene_id, format } => {
+        Commands::Diagnose {
+            data_dir,
+            character_id,
+            scene_id,
+            format,
+        } => {
             let root = data_dir
                 .or_else(|| std::env::var("AIRP_DATA_DIR").ok().map(PathBuf::from))
                 .unwrap_or_else(|| PathBuf::from("data"));
@@ -234,12 +239,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
             match format.as_str() {
                 "summary" => {
-                    let chars = report["characters"].as_array().map(|a| a.len()).unwrap_or(0);
+                    let chars = report["characters"]
+                        .as_array()
+                        .map(|a| a.len())
+                        .unwrap_or(0);
                     let users_n = report["users"].as_array().map(|a| a.len()).unwrap_or(0);
                     let presets = report["presets"].as_array().map(|a| a.len()).unwrap_or(0);
                     let scenes = report["scenes"].as_array().map(|a| a.len()).unwrap_or(0);
                     println!("AIRP-Core diagnose (v{})", env!("CARGO_PKG_VERSION"));
-                    println!("  data_root        : {}", report["data_root"].as_str().unwrap_or("?"));
+                    println!(
+                        "  data_root        : {}",
+                        report["data_root"].as_str().unwrap_or("?")
+                    );
                     println!("  data_root_exists : {}", report["data_root_exists"]);
                     println!("  settings.present : {}", report["settings"]["present"]);
                     println!("  characters       : {}", chars);
@@ -287,7 +298,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
-        Commands::Tool { name, json, data_dir } => {
+        Commands::Tool {
+            name,
+            json,
+            data_dir,
+        } => {
             // Single-shot MCP tool invocation. No HTTP / stdio server lifetime.
             let root = data_dir
                 .or_else(|| std::env::var("AIRP_DATA_DIR").ok().map(PathBuf::from))

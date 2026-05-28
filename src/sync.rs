@@ -191,7 +191,11 @@ mod tests_dx5 {
 
         let entries = build_manifest(dir.path());
         assert_eq!(entries.len(), 1);
-        assert!(entries[0].path.contains("alice/card.json") || entries[0].path.contains("alice\\card.json") || entries[0].path.ends_with("card.json"));
+        assert!(
+            entries[0].path.contains("alice/card.json")
+                || entries[0].path.contains("alice\\card.json")
+                || entries[0].path.ends_with("card.json")
+        );
         assert_eq!(entries[0].sha256.len(), 64);
         assert_eq!(entries[0].size, 16);
     }

@@ -112,9 +112,7 @@ pub fn check_and_increment(effective_root: &Path, config: &QuotaConfig) -> Resul
     let path = quota_file_path(effective_root);
     let mut state = QuotaState::load(&path);
 
-    if config.max_requests_per_day > 0
-        && state.requests_today >= config.max_requests_per_day
-    {
+    if config.max_requests_per_day > 0 && state.requests_today >= config.max_requests_per_day {
         return Err(AirpError::QuotaExceeded(format!(
             "请求配额已达上限：今日已发 {} 次，上限 {} 次/天",
             state.requests_today, config.max_requests_per_day

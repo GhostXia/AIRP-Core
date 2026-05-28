@@ -91,7 +91,9 @@ impl IdempotencyCache {
         }
 
         // If the key already exists, refresh it without disturbing order.
-        if let std::collections::hash_map::Entry::Occupied(mut e) = inner.map.entry(composite.clone()) {
+        if let std::collections::hash_map::Entry::Occupied(mut e) =
+            inner.map.entry(composite.clone())
+        {
             e.insert(Entry {
                 result,
                 inserted_at: Instant::now(),
