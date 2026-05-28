@@ -1381,6 +1381,65 @@ fn test_ds11_get_state_history_invalid_id_rejected() {
     assert!(err.message.contains("非法 character_id"));
 }
 
+// ── P2: state history sort robustness ────────────────────────────────────
+
+#[test]
+fn test_p2_user_state_history_sorts_out_of_order_jsonl() {
+    // Manually write history.jsonl with entries OUT of chronological order.
+    // get_user_state_history must return them newest-first regardless.
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    let hist = tmp.path().join("users/alice/state/history.jsonl");
+    std::fs::create_dir_all(hist.parent().unwrap()).unwrap();
+    let content = "\
+{\"ts\":\"2026-05-28T10:00:00Z\",\"state\":{\"step\":2}}
+{\"ts\":\"2026-05-28T09:00:00Z\",\"state\":{\"step\":1}}
+{\"ts\":\"2026-05-28T11:00:00Z\",\"state\":{\"step\":3}}
+";
+    std::fs::write(&hist, content).unwrap();
+
+    let resp = s
+        .get_user_state_history_impl(Parameters(GetUserStateHistoryRequest {
+            user_id: "alice".to_string(),
+            n: 10,
+        }))
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    let entries = v["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 3);
+    // Newest first regardless of file order
+    assert_eq!(entries[0]["state"]["step"], 3);
+    assert_eq!(entries[1]["state"]["step"], 2);
+    assert_eq!(entries[2]["state"]["step"], 1);
+}
+
+#[test]
+fn test_p2_character_state_history_sorts_out_of_order_jsonl() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    let hist = tmp.path().join("characters/bob/state/history.jsonl");
+    std::fs::create_dir_all(hist.parent().unwrap()).unwrap();
+    let content = "\
+{\"ts\":\"2026-05-28T10:00:00Z\",\"state\":{\"hp\":50}}
+{\"ts\":\"2026-05-28T11:00:00Z\",\"state\":{\"hp\":80}}
+{\"ts\":\"2026-05-28T09:00:00Z\",\"state\":{\"hp\":30}}
+";
+    std::fs::write(&hist, content).unwrap();
+
+    let resp = s
+        .get_state_history_impl(Parameters(GetStateHistoryRequest {
+            character_id: "bob".to_string(),
+            n: 10,
+        }))
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    let entries = v["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 3);
+    assert_eq!(entries[0]["state"]["hp"], 80);
+    assert_eq!(entries[1]["state"]["hp"], 50);
+    assert_eq!(entries[2]["state"]["hp"], 30);
+}
+
 // ── P1: Volume management MCP tools ──────────────────────────────────────
 
 #[test]

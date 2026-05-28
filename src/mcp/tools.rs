@@ -1189,14 +1189,19 @@ impl AirpMcpServer {
             ErrorData::internal_error(format!("读取 state/history.jsonl 失败: {}", e), None)
         })?;
 
-        let entries: Vec<serde_json::Value> = text
+        // P2: sort by `ts` (RFC3339 string sorts chronologically) instead of
+        // relying on file-order = append-order. Robust against manual edits or
+        // any future out-of-order writes.
+        let mut entries: Vec<serde_json::Value> = text
             .lines()
             .filter_map(|line| serde_json::from_str(line).ok())
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .take(n)
             .collect();
+        entries.sort_by(|a, b| {
+            let ta = a.get("ts").and_then(|v| v.as_str()).unwrap_or("");
+            let tb = b.get("ts").and_then(|v| v.as_str()).unwrap_or("");
+            tb.cmp(ta) // descending — newest first
+        });
+        entries.truncate(n);
 
         let count = entries.len();
         Ok(serde_json::json!({
@@ -1839,7 +1844,7 @@ impl AirpMcpServer {
 
         let history_path = crate::data_dir::user_state_history_path(&self.data_root, &__uid);
         let n = req.n.clamp(1, 1000);
-        let entries: Vec<serde_json::Value> = if history_path.exists() {
+        let mut entries: Vec<serde_json::Value> = if history_path.exists() {
             std::fs::read_to_string(&history_path)
                 .ok()
                 .map(|s| {
@@ -1852,15 +1857,18 @@ impl AirpMcpServer {
         } else {
             Vec::new()
         };
-        // Newest-first
-        let mut rev: Vec<_> = entries.into_iter().rev().take(n).collect();
-        // Reverse back so user can read top-down newest -> older? Actually convention
-        // for state_history was newest-first; align with character get_state_history.
-        let count = rev.len();
-        let _ = rev.iter_mut(); // no-op to keep mut binding warning-free
+        // P2: sort by `ts` (RFC3339 string = chronological) rather than relying
+        // on file-order. Matches character get_state_history behavior.
+        entries.sort_by(|a, b| {
+            let ta = a.get("ts").and_then(|v| v.as_str()).unwrap_or("");
+            let tb = b.get("ts").and_then(|v| v.as_str()).unwrap_or("");
+            tb.cmp(ta) // descending — newest first
+        });
+        entries.truncate(n);
+        let count = entries.len();
         Ok(serde_json::json!({
             "user_id": req.user_id,
-            "entries": rev,
+            "entries": entries,
             "count": count,
         })
         .to_string())
