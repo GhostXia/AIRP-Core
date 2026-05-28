@@ -7,6 +7,19 @@ AIRP exposes a full MCP (Model Context Protocol) server over two transports:
 | **stdio** | `airp-core mcp` | Claude Desktop / Claude Code (recommended) |
 | **HTTP Streamable** | `POST /mcp/v1` + `GET /mcp/v1` SSE | Remote agents, HTTP-based MCP clients |
 
+**Tool count**: 33 (see `airp-core list-tools --format summary` for the live list — that command reads `rmcp::ToolRouter::list_all()` so it never falls out of sync with the code).
+
+## Universal conventions
+
+Every tool ships with MCP standard `annotations` (AUDIT-11) so harnesses can auto-classify safety without per-host mapping tables:
+
+- `readOnlyHint: true` — pure read, safe to call silently
+- `destructiveHint: true` — may delete or remove data; clients should confirm
+- `idempotentHint: true` — repeated calls converge to the same state
+- `openWorldHint: false` — every AIRP tool only touches the local `data/` dir
+
+Every write tool (12 of them) accepts an optional `idempotency_key` (AUDIT-12). Pass the same key on retry; the cache (FIFO 1000, TTL 24 h) returns the original response and skips the side effect.
+
 ## Quick Start (Claude Code)
 
 1. Build release binary:
@@ -15,6 +28,21 @@ AIRP exposes a full MCP (Model Context Protocol) server over two transports:
    ```
 2. Copy `mcp_config.example.json` to your Claude config directory and adjust paths.
 3. Verify with `airp-core mcp` — first JSON-RPC message should respond with server info.
+
+For shell automation without a long-running server, use the one-shot dispatcher:
+```bash
+airp-core tool ping
+airp-core tool list_characters
+airp-core tool append_message --json '{"character_id":"alice","role":"user","content":"hi"}'
+```
+
+For full-state debug reports (user-pasted bug triage), use:
+```bash
+airp-core diagnose                       # full JSON
+airp-core diagnose --format summary      # human-readable table
+```
+
+Sensitive fields (`api_key`, `access_api_key`) never leak in plaintext — only `*_set` booleans surface.
 
 ---
 
@@ -346,6 +374,245 @@ Each snapshot is appended by `update_state`. Useful for reviewing how HP/MP/loca
 
 ---
 
+### `list_characters`
+List every imported character ID.
+
+**Input:** `{}`
+
+**Output:** `{ "count": 2, "characters": ["alice", "bob"] }`
+
+---
+
+### `list_users`
+List every imported user persona ID (see M_UP section below).
+
+**Input:** `{}`
+
+**Output:** `{ "count": 1, "users": ["player_alice"] }`
+
+---
+
+### `get_character`
+Fetch a character's card JSON + folder presence metadata. Friendlier than the `airp://characters/{id}/card` resource for harnesses that prefer tool calls.
+
+**Input:** `{ "character_id": "alice" }`
+
+**Output:**
+```json
+{
+  "character_id": "alice",
+  "card_present": true,
+  "card_format": "v2_folder",
+  "card": { "spec": "chara_card_v2", "data": { "name": "Alice", ... } }
+}
+```
+
+`card_format` values: `v2_folder` (CF-1 `card/raw.json`), `v2_legacy` (root `card.json`), `missing`.
+
+---
+
+### `get_live_state`
+Read the current `state/live.json` snapshot without history. Equivalent to the `airp://characters/{id}/state/live` resource as a tool.
+
+**Input:** `{ "character_id": "alice" }`
+
+**Output:** `{ "character_id": "alice", "present": true, "state": { "hp": 80, ... } }`
+
+When the file doesn't exist: `{ "present": false, "state": {} }`.
+
+---
+
+### `delete_character`
+Recursively remove `data/characters/{id}/`. Safety-latched.
+
+**Input:** `{ "character_id": "alice", "confirm": false }`
+
+**Default (dry-run):**
+```json
+{
+  "character_id": "alice",
+  "deleted": false,
+  "dry_run": true,
+  "would_remove_top_entries": ["card", "history", "memory", "state", ...],
+  "hint": "pass {\"confirm\":true} to actually delete"
+}
+```
+
+**Confirmed (`confirm: true`):** removes directory; returns `{ "deleted": true, "removed_top_entries": [...] }`.
+
+`destructiveHint: true`. No undo.
+
+---
+
+## M_UP — User Persona tools
+
+User personas mirror character cards but with an explicit **base / drift** split:
+
+- `users/{user_id}/persona.json` — **元设定** (immutable base, optionally sealed by `persona.lock`)
+- `users/{user_id}/state/live.json` — **变量设定** (mutable drift overlay)
+- `users/{user_id}/state/history.jsonl` — snapshot timeline
+
+Server does **not** judge semantic conflicts (戒律 1). It returns base + drift + a `drift_keys` diff; the Agent decides whether e.g. "learned_basketball" in drift contradicts "skills: []" in the base.
+
+### `import_user_persona`
+Write the immutable base persona.
+
+**Input:**
+```json
+{
+  "user_id": "player_alice",
+  "persona_json": "{\"name\":\"Alice\",\"description\":\"cannot play basketball\"}",
+  "lock": false,
+  "idempotency_key": null
+}
+```
+
+`persona_json` must be a JSON object with a non-empty `name` field. Setting `lock: true` creates `persona.lock` immediately. If `persona.lock` already exists, this tool **rejects** the import.
+
+**Output:** `{ "user_id": ..., "name": "Alice", "locked": false, "persona_path": "..." }`
+
+---
+
+### `lock_user_persona`
+Seal the persona (create `persona.lock`). Idempotent.
+
+**Input:** `{ "user_id": "player_alice" }`
+
+**Output:** `{ "user_id": ..., "locked": true, "was_already_locked": false }`
+
+Errors if `persona.json` doesn't exist.
+
+---
+
+### `get_user_persona`
+Return full base + current drift + drift_keys diff.
+
+**Input:** `{ "user_id": "player_alice" }`
+
+**Output:**
+```json
+{
+  "user_id": "player_alice",
+  "persona": { "name": "Alice", "description": "cannot play basketball" },
+  "locked": true,
+  "current_state": { "learned_basketball": true, "mood": "excited" },
+  "drift_keys": ["learned_basketball", "mood"]
+}
+```
+
+`drift_keys` are top-level keys in `current_state` that are NOT in `persona`. Agent reads both halves to reason about contradictions.
+
+---
+
+### `update_user_state`
+Update the drift overlay. Merge or overwrite. **Never** modifies `persona.json` (the immutable base stays stable across an entire campaign).
+
+**Input:**
+```json
+{
+  "user_id": "player_alice",
+  "state_json": "{\"learned_basketball\": true}",
+  "overwrite": false,
+  "idempotency_key": null
+}
+```
+
+**Output:** `{ "user_id": ..., "overwrite": false, "fields_updated": 1, "state": { ... } }`
+
+Side effect: appends a snapshot to `state/history.jsonl` and emits `notifications/resources/updated` for `airp://users/{user_id}/state/live`.
+
+---
+
+### `get_user_state_history`
+Read recent state snapshots (newest-first).
+
+**Input:** `{ "user_id": "player_alice", "n": 10 }`
+
+**Output:**
+```json
+{
+  "user_id": "player_alice",
+  "entries": [
+    { "ts": "2026-05-28T07:00:00Z", "state": { ... } },
+    ...
+  ],
+  "count": 3
+}
+```
+
+---
+
+## Scene CRUD tools (M_MS)
+
+Multi-character scenes. Server-side multi-character orchestration is opt-in: a scene defines `characters: [{character_id, role, intro}]` plus narrator style + lorebook merge mode. Used by `chat_pipeline` when a `scene_id` is passed.
+
+### `list_scenes`
+List every scene ID. **Input:** `{}` **Output:** `{ "count": 1, "scenes": ["tavern"] }`
+
+### `get_scene`
+Return full SceneConfig. **Input:** `{ "scene_id": "tavern" }`
+
+### `create_scene`
+Create or replace a scene from a full SceneConfig JSON string.
+
+**Input:**
+```json
+{
+  "scene_json": "{\"scene_id\":\"tavern\",\"characters\":[],\"description\":\"Dawn tavern\"}",
+  "idempotency_key": null
+}
+```
+
+`scene_id` is determined by the JSON. Invalid scene_ids are rejected by SceneId's serde validation.
+
+**Output:** `{ "scene_id": ..., "characters_count": 0, "created": true }`
+
+### `add_scene_character`
+Append a character to a scene's `characters` array.
+
+**Input:**
+```json
+{
+  "scene_id": "tavern",
+  "character_id": "alice",
+  "role": "primary",
+  "intro": "the hero",
+  "idempotency_key": null
+}
+```
+
+`role` is `primary` or `npc` (default `npc`).
+
+---
+
+## Volume management tools
+
+Pure file operations. **AIRP never calls the LLM from these tools** (戒律 1) — Agent supplies pre-summarized digests when it wants summarization.
+
+### `list_volumes`
+**Input:** `{ "character_id": "alice" }` **Output:** `{ "character_id": ..., "count": 2, "volumes": [1, 2] }`
+
+### `read_volume`
+**Input:** `{ "character_id": "alice", "number": 1 }` **Output:** `{ "character_id": ..., "number": 1, "content": "..." }`
+
+### `seal_volume`
+Archive `current.md` as the next `vol_NNN.md` and clear `current.md`. Optional `content` parameter overrides the raw current.md (Agent-computed digest).
+
+**Input:**
+```json
+{
+  "character_id": "alice",
+  "content": null,
+  "idempotency_key": null
+}
+```
+
+**Output:** `{ "character_id": ..., "sealed_number": 1, "bytes": 1234, "used_override_content": false }`
+
+Empty current.md (and no override) returns an error — there's nothing to archive.
+
+---
+
 ## Resources
 
 ### Static Resources
@@ -354,6 +621,7 @@ Each snapshot is appended by `update_state`. Useful for reviewing how HP/MP/loca
 |-----|-------------|
 | `airp://characters` | JSON array of imported character IDs |
 | `airp://presets` | JSON array of imported preset IDs |
+| `airp://users` | JSON array of imported user persona IDs (M_UP) |
 
 ### Resource Templates
 
@@ -363,10 +631,12 @@ Each snapshot is appended by `update_state`. Useful for reviewing how HP/MP/loca
 | `airp://characters/{character_id}/world/lorebook` | World book JSON (`world/lorebook.json`). Returns `{"entries":[]}` if absent. |
 | `airp://characters/{character_id}/history` | Chat log JSON (`history/chat_log.jsonl` deserialized). Returns `{"messages":[]}` if absent. |
 | `airp://characters/{character_id}/artifacts` | JSON array of Agent-written artifact relative paths (excludes system dirs/files). |
-| `airp://characters/{character_id}/state/live` | Latest live state JSON written by `<state>{...}</state>` tag in LLM output. Returns `{}` if no state yet. |
+| `airp://characters/{character_id}/state/live` | Latest live state JSON written by `<state>{...}</state>` tag in LLM output. Returns `{}` if no state yet. Subscribable — `update_state` emits `notifications/resources/updated`. |
 | `airp://presets/{preset_id}/raw` | Raw `preset.json` content for Agent analysis. Supports `?offset=N&limit=M` pagination for large files (default limit: 100 000 chars). |
 | `airp://presets/{preset_id}/artifacts` | JSON array of Agent-written preset artifact relative paths (excludes `preset.json` itself). |
 | `airp://presets/{preset_id}/regex` | Same as `list_preset_regex_scripts` output — JSON array of regex script objects with `_filename`. |
+| `airp://users/{user_id}/persona` | M_UP base persona (元设定). Returns `null` if no persona imported. |
+| `airp://users/{user_id}/state/live` | M_UP drift overlay (变量设定). Returns `{}` if no state yet. Subscribable — `update_user_state` emits `notifications/resources/updated`. |
 
 ---
 
