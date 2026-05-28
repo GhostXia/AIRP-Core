@@ -39,6 +39,9 @@ test/
 # Local reference clones (e.g. sibling project checkouts for cross-reference)
 .tmp-*/
 
+# Local scratch commit messages (used by PowerShell to feed `git commit -F`)
+.tmp_commit_msg.txt
+
 # Internal design history / roadmap (closed-source — strategic positioning,
 # audit plans, competitive analysis; local-only)
 REFACTOR_PLAN.md

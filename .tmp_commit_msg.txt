@@ -1,8 +1,0 @@
-style: cargo fmt --all (fix CI fmt-check)
-
-CI fmt-check job failed on the last 4 commits because rustfmt produced
-diffs that local commits missed (PowerShell terminal didn't auto-run
-fmt). Applied `cargo fmt --all` across the whole tree; no behavior
-changes, purely whitespace/wrap reformat.
-
-Tests still 421/421 passing, clippy clean.
