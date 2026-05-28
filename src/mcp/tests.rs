@@ -1329,6 +1329,148 @@ fn test_ds11_get_state_history_invalid_id_rejected() {
     assert!(err.message.contains("非法 character_id"));
 }
 
+// ── P1: Volume management MCP tools ──────────────────────────────────────
+
+#[test]
+fn test_p1_volume_list_empty() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    let resp = s
+        .list_volumes_impl(Parameters(ListVolumesRequest {
+            character_id: "alice".to_string(),
+        }))
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    assert_eq!(v["count"], 0);
+    assert!(v["volumes"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn test_p1_seal_volume_archives_current_md() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    // Prepare memory dir + current.md with content
+    let memory = tmp.path().join("characters/alice/memory");
+    std::fs::create_dir_all(memory.join("volumes")).unwrap();
+    std::fs::write(memory.join("current.md"), "session content to archive").unwrap();
+    std::fs::write(memory.join("index.md"), "").unwrap();
+
+    let resp = s
+        .seal_volume_impl(Parameters(SealVolumeRequest {
+            character_id: "alice".to_string(),
+            content: None,
+            idempotency_key: None,
+        }))
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    assert_eq!(v["sealed_number"], 1);
+    assert_eq!(v["used_override_content"], false);
+
+    // current.md cleared
+    let cur = std::fs::read_to_string(memory.join("current.md")).unwrap();
+    assert!(cur.trim().is_empty());
+    // vol_001.md written with original content
+    let vol = std::fs::read_to_string(memory.join("volumes/vol_001.md")).unwrap();
+    assert!(vol.contains("session content to archive"));
+}
+
+#[test]
+fn test_p1_seal_volume_with_override_content() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    let memory = tmp.path().join("characters/alice/memory");
+    std::fs::create_dir_all(memory.join("volumes")).unwrap();
+    std::fs::write(memory.join("current.md"), "raw turn-by-turn log").unwrap();
+    std::fs::write(memory.join("index.md"), "").unwrap();
+
+    let summary = "Agent-summarized digest of the session.";
+    s.seal_volume_impl(Parameters(SealVolumeRequest {
+        character_id: "alice".to_string(),
+        content: Some(summary.to_string()),
+        idempotency_key: None,
+    }))
+    .unwrap();
+
+    let vol = std::fs::read_to_string(memory.join("volumes/vol_001.md")).unwrap();
+    assert!(vol.contains("Agent-summarized digest"));
+    assert!(!vol.contains("raw turn-by-turn"));
+}
+
+#[test]
+fn test_p1_seal_volume_empty_errors() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    let memory = tmp.path().join("characters/alice/memory");
+    std::fs::create_dir_all(memory.join("volumes")).unwrap();
+    std::fs::write(memory.join("current.md"), "").unwrap();
+    std::fs::write(memory.join("index.md"), "").unwrap();
+
+    let err = s
+        .seal_volume_impl(Parameters(SealVolumeRequest {
+            character_id: "alice".to_string(),
+            content: None,
+            idempotency_key: None,
+        }))
+        .unwrap_err();
+    assert!(err.message.contains("空"));
+}
+
+#[test]
+fn test_p1_volume_list_after_seal_and_read_back() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    let memory = tmp.path().join("characters/alice/memory");
+    std::fs::create_dir_all(memory.join("volumes")).unwrap();
+    std::fs::write(memory.join("current.md"), "first arc").unwrap();
+    std::fs::write(memory.join("index.md"), "").unwrap();
+
+    s.seal_volume_impl(Parameters(SealVolumeRequest {
+        character_id: "alice".to_string(),
+        content: None,
+        idempotency_key: None,
+    }))
+    .unwrap();
+
+    // Add new content + seal a second time
+    std::fs::write(memory.join("current.md"), "second arc").unwrap();
+    s.seal_volume_impl(Parameters(SealVolumeRequest {
+        character_id: "alice".to_string(),
+        content: None,
+        idempotency_key: None,
+    }))
+    .unwrap();
+
+    let list_resp = s
+        .list_volumes_impl(Parameters(ListVolumesRequest {
+            character_id: "alice".to_string(),
+        }))
+        .unwrap();
+    let lv: serde_json::Value = serde_json::from_str(&list_resp).unwrap();
+    assert_eq!(lv["count"], 2);
+
+    let read_resp = s
+        .read_volume_impl(Parameters(ReadVolumeRequest {
+            character_id: "alice".to_string(),
+            number: 2,
+        }))
+        .unwrap();
+    let rv: serde_json::Value = serde_json::from_str(&read_resp).unwrap();
+    assert!(rv["content"].as_str().unwrap().contains("second arc"));
+}
+
+#[test]
+fn test_p1_read_volume_missing_errors() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    let err = s
+        .read_volume_impl(Parameters(ReadVolumeRequest {
+            character_id: "alice".to_string(),
+            number: 99,
+        }))
+        .unwrap_err();
+    assert!(err.message.contains("vol_099"));
+}
+
 // ── P1: Scene CRUD MCP tools ──────────────────────────────────────────────
 
 #[test]

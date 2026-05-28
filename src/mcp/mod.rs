@@ -39,6 +39,8 @@ pub use tools::{
     DeleteCharacterRequest,
     // P1: Scene CRUD
     AddSceneCharacterRequest, CreateSceneRequest, GetSceneRequest, ListScenesRequest,
+    // P1: Volume management
+    ListVolumesRequest, ReadVolumeRequest, SealVolumeRequest,
 };
 pub use transport_http::mcp_http_router;
 
@@ -166,6 +168,10 @@ impl AirpMcpServer {
             "get_scene" => to_err!(self.get_scene_impl(Parameters(parse_args!(GetSceneRequest)))),
             "create_scene" => to_err!(self.create_scene_impl(Parameters(parse_args!(CreateSceneRequest)))),
             "add_scene_character" => to_err!(self.add_scene_character_impl(Parameters(parse_args!(AddSceneCharacterRequest)))),
+            // P1: volume management
+            "list_volumes" => to_err!(self.list_volumes_impl(Parameters(parse_args!(ListVolumesRequest)))),
+            "read_volume" => to_err!(self.read_volume_impl(Parameters(parse_args!(ReadVolumeRequest)))),
+            "seal_volume" => to_err!(self.seal_volume_impl(Parameters(parse_args!(SealVolumeRequest)))),
             other => Err(format!(
                 "unknown tool: `{}` (use `airp-core list-tools --format summary` to enumerate)",
                 other
@@ -583,6 +589,47 @@ impl AirpMcpServer {
         params: Parameters<AddSceneCharacterRequest>,
     ) -> Result<String, ErrorData> {
         self.add_scene_character_impl(params)
+    }
+
+    /// P1：列出角色已封存卷。
+    #[tool(
+        description = "列出 characters/{character_id}/memory/volumes/ 下已存在的卷编号（升序）。\
+                       返回 {character_id, count, volumes: [n1, n2, ...]} JSON。",
+        annotations(title = "list_volumes", read_only_hint = true, idempotent_hint = true, open_world_hint = false)
+    )]
+    fn list_volumes(
+        &self,
+        params: Parameters<ListVolumesRequest>,
+    ) -> Result<String, ErrorData> {
+        self.list_volumes_impl(params)
+    }
+
+    /// P1：读取指定编号卷内容。
+    #[tool(
+        description = "读取 characters/{character_id}/memory/volumes/vol_{number:03}.md 全文。\
+                       返回 {character_id, number, content} JSON。",
+        annotations(title = "read_volume", read_only_hint = true, idempotent_hint = true, open_world_hint = false)
+    )]
+    fn read_volume(
+        &self,
+        params: Parameters<ReadVolumeRequest>,
+    ) -> Result<String, ErrorData> {
+        self.read_volume_impl(params)
+    }
+
+    /// P1：封存 current.md 为下一个卷（纯文件操作，不调 LLM）。
+    #[tool(
+        description = "将 current.md 内容（或调用方传入的 `content`）写入 vol_{next:03}.md，\
+                       清空 current.md。**不调用 LLM** — 若需 summarization，Agent 自行计算后\
+                       通过 `content` 参数传入，否则按原文 archive。\
+                       返回 {character_id, sealed_number, bytes, used_override_content} JSON。",
+        annotations(title = "seal_volume", read_only_hint = false, destructive_hint = false, idempotent_hint = true, open_world_hint = false)
+    )]
+    fn seal_volume(
+        &self,
+        params: Parameters<SealVolumeRequest>,
+    ) -> Result<String, ErrorData> {
+        self.seal_volume_impl(params)
     }
 }
 

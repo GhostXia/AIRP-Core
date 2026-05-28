@@ -221,6 +221,44 @@ pub struct GetLiveStateRequest {
     pub character_id: String,
 }
 
+// ── P1: Volume management MCP wrappers ────────────────────────────────────
+//
+// Server-side LLM summarization (run_seal_flow) is deliberately NOT exposed
+// via MCP — it would violate 戒律 1 (server-side LLM calls). MCP tools here
+// are pure file operations: list / read / seal-as-archive. Agents that want
+// summarization compute it client-side and pass `content` to seal_volume.
+
+/// List archived volume numbers for a character's default session.
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
+pub struct ListVolumesRequest {
+    pub character_id: String,
+}
+
+/// Read a specific archived volume.
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
+pub struct ReadVolumeRequest {
+    pub character_id: String,
+    /// Volume number (1-based). The vol_NNN.md naming uses 3-digit padding.
+    pub number: u32,
+}
+
+/// Seal current.md as the next archived volume.
+///
+/// Pure file operation: writes vol_{next}.md, clears current.md. Does NOT
+/// invoke the upstream LLM (Agent supplies pre-summarized `content` if
+/// desired, or omits it to archive raw current.md verbatim).
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
+pub struct SealVolumeRequest {
+    pub character_id: String,
+    /// Optional pre-summarized content. When omitted, current.md is copied
+    /// verbatim into the new volume.
+    #[serde(default)]
+    pub content: Option<String>,
+    /// AUDIT-12: 幂等键。
+    #[serde(default)]
+    pub idempotency_key: Option<String>,
+}
+
 // ── P1: Scene CRUD MCP wrappers ───────────────────────────────────────────
 
 /// List all scene IDs under data/scenes/.
@@ -1237,6 +1275,114 @@ impl AirpMcpServer {
             "card": card_json,
         })
         .to_string())
+    }
+
+    // ── P1: Volume management implementations ─────────────────────────────
+
+    /// List archived volume numbers (sorted ascending).
+    pub(super) fn list_volumes_impl(
+        &self,
+        Parameters(req): Parameters<ListVolumesRequest>,
+    ) -> Result<String, ErrorData> {
+        crate::data_dir::validate_id_segment(&req.character_id)
+            .map_err(|e| ErrorData::invalid_params(format!("非法 character_id: {}", e), None))?;
+        // Read-only path computation — avoid session_dir() (which auto-creates).
+        let memory_dir = self
+            .data_root
+            .join("characters")
+            .join(&req.character_id)
+            .join("memory");
+        let nums = crate::volume_store::list_volume_numbers(&memory_dir);
+        Ok(serde_json::json!({
+            "character_id": req.character_id,
+            "count": nums.len(),
+            "volumes": nums,
+        })
+        .to_string())
+    }
+
+    /// Read full content of a specific volume.
+    pub(super) fn read_volume_impl(
+        &self,
+        Parameters(req): Parameters<ReadVolumeRequest>,
+    ) -> Result<String, ErrorData> {
+        crate::data_dir::validate_id_segment(&req.character_id)
+            .map_err(|e| ErrorData::invalid_params(format!("非法 character_id: {}", e), None))?;
+        let memory_dir = self
+            .data_root
+            .join("characters")
+            .join(&req.character_id)
+            .join("memory");
+        let content = crate::volume_store::read_volume_full(&memory_dir, req.number)
+            .map_err(|e| {
+                ErrorData::invalid_params(
+                    format!("读 vol_{:03}.md 失败: {}", req.number, e),
+                    None,
+                )
+            })?;
+        Ok(serde_json::json!({
+            "character_id": req.character_id,
+            "number": req.number,
+            "content": content,
+        })
+        .to_string())
+    }
+
+    /// Seal current.md as next vol_NNN.md + clear current.md.
+    ///
+    /// Pure file operation. `content` argument (if supplied) overrides the
+    /// raw current.md content — useful when Agent has pre-summarized the
+    /// session offline.
+    pub(super) fn seal_volume_impl(
+        &self,
+        Parameters(req): Parameters<SealVolumeRequest>,
+    ) -> Result<String, ErrorData> {
+        if let Some(ref key) = req.idempotency_key {
+            if let Some(cached) = self.idempotency.get("seal_volume", key) {
+                return Ok(cached);
+            }
+        }
+        crate::data_dir::validate_id_segment(&req.character_id)
+            .map_err(|e| ErrorData::invalid_params(format!("非法 character_id: {}", e), None))?;
+
+        // session_dir() ensures memory/ + volumes/ + current.md + index.md exist.
+        let session_dir = crate::data_dir::session_dir(&self.data_root, &req.character_id)
+            .map_err(|e| {
+                ErrorData::internal_error(format!("session_dir 解析失败: {}", e), None)
+            })?;
+
+        // Decide content source: explicit override or raw current.md.
+        let body = match req.content.clone() {
+            Some(c) => c,
+            None => crate::volume_store::read_current(&session_dir)
+                .map_err(|e| ErrorData::internal_error(format!("读 current.md 失败: {}", e), None))?,
+        };
+        if body.trim().is_empty() {
+            return Err(ErrorData::invalid_params(
+                "current.md / content 均为空，无内容可封".to_string(),
+                None,
+            ));
+        }
+
+        let next_n = crate::volume_store::next_volume_number(&session_dir);
+        crate::volume_store::write_volume(&session_dir, next_n, &body).map_err(|e| {
+            ErrorData::internal_error(format!("写 vol_{:03}.md 失败: {}", next_n, e), None)
+        })?;
+        crate::volume_store::clear_current(&session_dir).map_err(|e| {
+            ErrorData::internal_error(format!("清空 current.md 失败: {}", e), None)
+        })?;
+
+        let response = serde_json::json!({
+            "character_id": req.character_id,
+            "sealed_number": next_n,
+            "bytes": body.len(),
+            "used_override_content": req.content.is_some(),
+        })
+        .to_string();
+        if let Some(ref key) = req.idempotency_key {
+            self.idempotency.store("seal_volume", key, response.clone());
+        }
+        Ok(response)
     }
 
     // ── P1: Scene CRUD implementations ────────────────────────────────────

@@ -41,9 +41,9 @@
 
 | 项 | 值 |
 |---|---|
-| 测试 | **411** passing（lib 406 + integration 5），1 ignored |
+| 测试 | **417** passing（lib 412 + integration 5），1 ignored |
 | Clippy `--lib --bins -- -D warnings` | **0** warning |
-| MCP 工具 | 30（含 5 user persona + 4 P0 读 + delete_character + 4 scene CRUD，全部带 ToolAnnotations） |
+| MCP 工具 | 33（含 5 user persona + 4 P0 读 + delete_character + 4 scene CRUD + 3 volume ops，全部带 ToolAnnotations） |
 | MCP 资源 | 3 静态 + 9 模板 |
 | MCP Prompts | 5 |
 | 已完成里程碑 | M0–M3 / M_CF / M_PR (PR-1~10) / M_MS / M_MCP / M_DX / M_LS / M_CA / **M_HARDEN (13/13)** |
@@ -157,6 +157,9 @@ airp-core diagnose --character-id alice   # 聚焦单个角色
 | `get_scene` | 读场景完整配置 | readonly |
 | `create_scene` | 从 JSON 创建/覆盖场景 | mutate / idempotent |
 | `add_scene_character` | 向场景追加角色 | mutate |
+| `list_volumes` | 列出角色已封存卷 | readonly |
+| `read_volume` | 读取指定编号卷内容 | readonly |
+| `seal_volume` | 封存 current.md 为下一卷（纯文件操作，不调 LLM） | mutate / idempotent |
 
 **User persona 双层模型（M_UP）：**
 - **元设定 / Base**（`users/{id}/persona.json`）：初始人设，可通过 `persona.lock` 封存为只读契约
