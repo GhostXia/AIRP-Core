@@ -46,6 +46,13 @@ enum Commands {
         #[arg(long)]
         data_dir: Option<PathBuf>,
     },
+    /// AUDIT-3: 列出所有 MCP 工具（含 description / input schema / annotations）。
+    /// 输出 JSON，可用于 CI 校验 README / docs 与代码同步。
+    ListTools {
+        /// 输出格式：`json`（默认）或 `summary`（简表，仅 name + side_effect）。
+        #[arg(long, default_value = "json")]
+        format: String,
+    },
     /// 在终端控制台直接运行单次流式过滤
     Run {
         /// 角色卡：PNG 路径 / JSON 文件路径 / `{...}` 内联 JSON / data/characters/{id} 文件夹名
@@ -178,6 +185,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // (e.g. client closed stdin). Idempotent — no-op if signal already fired.
             signal_task.abort();
             tracing::info!(?quit_reason, "MCP stdio server 已退出");
+        }
+        Commands::ListTools { format } => {
+            // AUDIT-3: enumerate tools from rmcp ToolRouter so docs can be
+            // verified against code as the single source of truth.
+            let server = airp_core::mcp::AirpMcpServer::new(PathBuf::from("data"));
+            let tools = server.enumerate_tools();
+            match format.as_str() {
+                "summary" => {
+                    println!("AIRP MCP tools — {} total", tools.len());
+                    for t in &tools {
+                        let side_effect = match &t.annotations {
+                            Some(a) if a.read_only_hint == Some(true) => "readonly",
+                            Some(a) if a.destructive_hint == Some(true) => "destructive",
+                            Some(a) if a.idempotent_hint == Some(true) => "mutate-idempotent",
+                            Some(_) => "mutate",
+                            None => "(no annotations)",
+                        };
+                        println!("  {:<32}  {}", t.name, side_effect);
+                    }
+                }
+                _ => {
+                    // Default JSON output
+                    let json = serde_json::to_string_pretty(&tools)?;
+                    println!("{}", json);
+                }
+            }
         }
         Commands::Run {
             character,

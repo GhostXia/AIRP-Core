@@ -79,6 +79,16 @@ impl AirpMcpServer {
             state_subs,
         }
     }
+
+    /// AUDIT-3: enumerate all registered MCP tools with annotations.
+    ///
+    /// Returns the same `Tool` list that `tools/list` JSON-RPC method would
+    /// emit, including name / description / input schema / annotations.
+    /// Used by the `list-tools` CLI subcommand so docs (README, REFACTOR_PLAN)
+    /// can be cross-checked against the code as a single source of truth.
+    pub fn enumerate_tools(&self) -> Vec<rmcp::model::Tool> {
+        self.tool_router.list_all()
+    }
 }
 
 // ── MCP-1/2: Tool wrappers（宏生成的 tool_router() 须在此模块，故 thin wrapper 留在此）──
