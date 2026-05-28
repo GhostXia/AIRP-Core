@@ -37,6 +37,8 @@ pub use tools::{
     GetCharacterRequest, GetLiveStateRequest, ListCharactersRequest, ListUsersRequest,
     // P1: delete character
     DeleteCharacterRequest,
+    // P1: Scene CRUD
+    AddSceneCharacterRequest, CreateSceneRequest, GetSceneRequest, ListScenesRequest,
 };
 pub use transport_http::mcp_http_router;
 
@@ -159,6 +161,11 @@ impl AirpMcpServer {
             "get_character" => to_err!(self.get_character_impl(Parameters(parse_args!(GetCharacterRequest)))),
             "get_live_state" => to_err!(self.get_live_state_impl(Parameters(parse_args!(GetLiveStateRequest)))),
             "delete_character" => to_err!(self.delete_character_impl(Parameters(parse_args!(DeleteCharacterRequest)))),
+            // P1: scene CRUD
+            "list_scenes" => to_err!(self.list_scenes_impl(Parameters(parse_args!(ListScenesRequest)))),
+            "get_scene" => to_err!(self.get_scene_impl(Parameters(parse_args!(GetSceneRequest)))),
+            "create_scene" => to_err!(self.create_scene_impl(Parameters(parse_args!(CreateSceneRequest)))),
+            "add_scene_character" => to_err!(self.add_scene_character_impl(Parameters(parse_args!(AddSceneCharacterRequest)))),
             other => Err(format!(
                 "unknown tool: `{}` (use `airp-core list-tools --format summary` to enumerate)",
                 other
@@ -525,6 +532,57 @@ impl AirpMcpServer {
         params: Parameters<DeleteCharacterRequest>,
     ) -> Result<String, ErrorData> {
         self.delete_character_impl(params)
+    }
+
+    /// P1：列出所有场景。
+    #[tool(
+        description = "列出 data/scenes/ 下的所有场景 ID。返回 {count, scenes: [...]} JSON。",
+        annotations(title = "list_scenes", read_only_hint = true, idempotent_hint = true, open_world_hint = false)
+    )]
+    fn list_scenes(
+        &self,
+        params: Parameters<ListScenesRequest>,
+    ) -> Result<String, ErrorData> {
+        self.list_scenes_impl(params)
+    }
+
+    /// P1：读取场景完整配置。
+    #[tool(
+        description = "返回 scenes/{scene_id}/scene.json 的完整 SceneConfig（含 characters / narrator_style / lorebook_merge 等）。",
+        annotations(title = "get_scene", read_only_hint = true, idempotent_hint = true, open_world_hint = false)
+    )]
+    fn get_scene(
+        &self,
+        params: Parameters<GetSceneRequest>,
+    ) -> Result<String, ErrorData> {
+        self.get_scene_impl(params)
+    }
+
+    /// P1：创建或覆盖场景。
+    #[tool(
+        description = "从 scene_json（完整 SceneConfig JSON 字符串）创建或覆盖 scenes/{scene_id}/scene.json。\
+                       scene_id 由 JSON 内部 scene_id 字段决定。返回 {scene_id, characters_count, created} JSON。",
+        annotations(title = "create_scene", read_only_hint = false, destructive_hint = false, idempotent_hint = true, open_world_hint = false)
+    )]
+    fn create_scene(
+        &self,
+        params: Parameters<CreateSceneRequest>,
+    ) -> Result<String, ErrorData> {
+        self.create_scene_impl(params)
+    }
+
+    /// P1：向场景追加角色。
+    #[tool(
+        description = "向 scenes/{scene_id}/scene.json 的 characters 数组追加一条 {character_id, role, intro}。\
+                       role 取 `primary` 或 `npc`（默认 npc）。intro 为可选自由文本。\
+                       返回 {scene_id, character_id, characters_count} JSON。",
+        annotations(title = "add_scene_character", read_only_hint = false, destructive_hint = false, idempotent_hint = false, open_world_hint = false)
+    )]
+    fn add_scene_character(
+        &self,
+        params: Parameters<AddSceneCharacterRequest>,
+    ) -> Result<String, ErrorData> {
+        self.add_scene_character_impl(params)
     }
 }
 

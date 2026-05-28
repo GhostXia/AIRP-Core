@@ -221,6 +221,44 @@ pub struct GetLiveStateRequest {
     pub character_id: String,
 }
 
+// ── P1: Scene CRUD MCP wrappers ───────────────────────────────────────────
+
+/// List all scene IDs under data/scenes/.
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
+pub struct ListScenesRequest {}
+
+/// Get a scene's `scene.json` content.
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
+pub struct GetSceneRequest {
+    pub scene_id: String,
+}
+
+/// Create or replace a scene from a full SceneConfig JSON string.
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
+pub struct CreateSceneRequest {
+    /// Full SceneConfig JSON (must include `scene_id`, `characters`).
+    pub scene_json: String,
+    /// AUDIT-12: 幂等键。
+    #[serde(default)]
+    pub idempotency_key: Option<String>,
+}
+
+/// Append a character entry to an existing scene.
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
+pub struct AddSceneCharacterRequest {
+    pub scene_id: String,
+    pub character_id: String,
+    /// Role: "primary" or "npc". Defaults to "npc".
+    #[serde(default)]
+    pub role: Option<String>,
+    /// Optional intro text (free-form).
+    #[serde(default)]
+    pub intro: Option<String>,
+    /// AUDIT-12: 幂等键。
+    #[serde(default)]
+    pub idempotency_key: Option<String>,
+}
+
 /// P1: delete an entire character directory.
 ///
 /// Recursive: removes card / lorebook / state / chat history / volumes /
@@ -1199,6 +1237,107 @@ impl AirpMcpServer {
             "card": card_json,
         })
         .to_string())
+    }
+
+    // ── P1: Scene CRUD implementations ────────────────────────────────────
+
+    /// List all scene IDs.
+    pub(super) fn list_scenes_impl(
+        &self,
+        _params: Parameters<ListScenesRequest>,
+    ) -> Result<String, ErrorData> {
+        let list = crate::data_dir::list_scenes(&self.data_root)
+            .map_err(|e| ErrorData::internal_error(format!("list_scenes 失败: {}", e), None))?;
+        Ok(serde_json::json!({
+            "count": list.len(),
+            "scenes": list,
+        })
+        .to_string())
+    }
+
+    /// Get scene.json content.
+    pub(super) fn get_scene_impl(
+        &self,
+        Parameters(req): Parameters<GetSceneRequest>,
+    ) -> Result<String, ErrorData> {
+        let scene_id = crate::types::SceneId::new(&req.scene_id)
+            .map_err(|e| ErrorData::invalid_params(format!("非法 scene_id: {}", e), None))?;
+        let scene = crate::scene::SceneConfig::load(&self.data_root, &scene_id).map_err(|e| {
+            ErrorData::invalid_params(format!("scene `{}` 加载失败: {}", req.scene_id, e), None)
+        })?;
+        serde_json::to_string(&scene)
+            .map_err(|e| ErrorData::internal_error(format!("序列化失败: {}", e), None))
+    }
+
+    /// Create or replace a scene from JSON.
+    pub(super) fn create_scene_impl(
+        &self,
+        Parameters(req): Parameters<CreateSceneRequest>,
+    ) -> Result<String, ErrorData> {
+        if let Some(ref key) = req.idempotency_key {
+            if let Some(cached) = self.idempotency.get("create_scene", key) {
+                return Ok(cached);
+            }
+        }
+        let scene: crate::scene::SceneConfig =
+            serde_json::from_str(&req.scene_json).map_err(|e| {
+                ErrorData::invalid_params(format!("scene_json 非合法 SceneConfig JSON: {}", e), None)
+            })?;
+        scene
+            .save(&self.data_root)
+            .map_err(|e| ErrorData::internal_error(format!("写 scene.json 失败: {}", e), None))?;
+        let response = serde_json::json!({
+            "scene_id": scene.scene_id.as_str(),
+            "characters_count": scene.characters.len(),
+            "created": true,
+        })
+        .to_string();
+        if let Some(ref key) = req.idempotency_key {
+            self.idempotency.store("create_scene", key, response.clone());
+        }
+        Ok(response)
+    }
+
+    /// Append a character entry to a scene.
+    pub(super) fn add_scene_character_impl(
+        &self,
+        Parameters(req): Parameters<AddSceneCharacterRequest>,
+    ) -> Result<String, ErrorData> {
+        if let Some(ref key) = req.idempotency_key {
+            if let Some(cached) = self.idempotency.get("add_scene_character", key) {
+                return Ok(cached);
+            }
+        }
+        let scene_id = crate::types::SceneId::new(&req.scene_id)
+            .map_err(|e| ErrorData::invalid_params(format!("非法 scene_id: {}", e), None))?;
+        crate::data_dir::validate_id_segment(&req.character_id)
+            .map_err(|e| ErrorData::invalid_params(format!("非法 character_id: {}", e), None))?;
+
+        let mut scene = crate::scene::SceneConfig::load(&self.data_root, &scene_id).map_err(|e| {
+            ErrorData::invalid_params(format!("scene `{}` 加载失败: {}", req.scene_id, e), None)
+        })?;
+        let role = match req.role.as_deref() {
+            Some("primary") => crate::scene::CharacterRole::Primary,
+            _ => crate::scene::CharacterRole::Npc,
+        };
+        scene.characters.push(crate::scene::CharacterEntry {
+            character_id: req.character_id.clone(),
+            role,
+            intro: req.intro.clone().unwrap_or_default(),
+        });
+        scene
+            .save(&self.data_root)
+            .map_err(|e| ErrorData::internal_error(format!("写 scene.json 失败: {}", e), None))?;
+        let response = serde_json::json!({
+            "scene_id": scene.scene_id.as_str(),
+            "character_id": req.character_id,
+            "characters_count": scene.characters.len(),
+        })
+        .to_string();
+        if let Some(ref key) = req.idempotency_key {
+            self.idempotency.store("add_scene_character", key, response.clone());
+        }
+        Ok(response)
     }
 
     /// Delete an entire character directory. Safety: requires `confirm=true`.

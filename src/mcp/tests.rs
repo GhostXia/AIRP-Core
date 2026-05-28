@@ -1329,6 +1329,162 @@ fn test_ds11_get_state_history_invalid_id_rejected() {
     assert!(err.message.contains("非法 character_id"));
 }
 
+// ── P1: Scene CRUD MCP tools ──────────────────────────────────────────────
+
+#[test]
+fn test_p1_scene_list_empty() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    let resp = s
+        .list_scenes_impl(Parameters(ListScenesRequest {}))
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    assert_eq!(v["count"], 0);
+}
+
+#[test]
+fn test_p1_scene_create_and_get() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    let scene_json = r#"{
+        "scene_id": "tavern",
+        "description": "Dawn tavern scene",
+        "characters": [],
+        "narrator_style": "third_person",
+        "lorebook_merge": "union",
+        "format_hint": ""
+    }"#;
+    s.create_scene_impl(Parameters(CreateSceneRequest {
+        scene_json: scene_json.to_string(),
+        idempotency_key: None,
+    }))
+    .unwrap();
+
+    let get_resp = s
+        .get_scene_impl(Parameters(GetSceneRequest {
+            scene_id: "tavern".to_string(),
+        }))
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&get_resp).unwrap();
+    assert_eq!(v["scene_id"], "tavern");
+    assert_eq!(v["description"], "Dawn tavern scene");
+}
+
+#[test]
+fn test_p1_scene_list_after_create() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    s.create_scene_impl(Parameters(CreateSceneRequest {
+        scene_json: r#"{"scene_id":"forest","characters":[]}"#.to_string(),
+        idempotency_key: None,
+    }))
+    .unwrap();
+    let resp = s
+        .list_scenes_impl(Parameters(ListScenesRequest {}))
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    assert_eq!(v["count"], 1);
+    assert_eq!(v["scenes"][0], "forest");
+}
+
+#[test]
+fn test_p1_scene_add_character() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    s.create_scene_impl(Parameters(CreateSceneRequest {
+        scene_json: r#"{"scene_id":"market","characters":[]}"#.to_string(),
+        idempotency_key: None,
+    }))
+    .unwrap();
+    let r1 = s
+        .add_scene_character_impl(Parameters(AddSceneCharacterRequest {
+            scene_id: "market".to_string(),
+            character_id: "alice".to_string(),
+            role: Some("primary".to_string()),
+            intro: Some("the hero".to_string()),
+            idempotency_key: None,
+        }))
+        .unwrap();
+    let v1: serde_json::Value = serde_json::from_str(&r1).unwrap();
+    assert_eq!(v1["characters_count"], 1);
+
+    let r2 = s
+        .add_scene_character_impl(Parameters(AddSceneCharacterRequest {
+            scene_id: "market".to_string(),
+            character_id: "bob".to_string(),
+            role: None, // defaults npc
+            intro: None,
+            idempotency_key: None,
+        }))
+        .unwrap();
+    let v2: serde_json::Value = serde_json::from_str(&r2).unwrap();
+    assert_eq!(v2["characters_count"], 2);
+}
+
+#[test]
+fn test_p1_scene_create_rejects_bad_id_via_serde() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    let bad = r#"{"scene_id":"../etc","characters":[]}"#;
+    let err = s
+        .create_scene_impl(Parameters(CreateSceneRequest {
+            scene_json: bad.to_string(),
+            idempotency_key: None,
+        }))
+        .unwrap_err();
+    assert!(err.message.contains("SceneConfig") || err.message.contains("scene_id"));
+}
+
+#[test]
+fn test_p1_scene_get_missing_errors() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    let err = s
+        .get_scene_impl(Parameters(GetSceneRequest {
+            scene_id: "ghost".to_string(),
+        }))
+        .unwrap_err();
+    assert!(err.message.contains("ghost"));
+}
+
+#[test]
+fn test_p1_scene_add_character_idempotency() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    s.create_scene_impl(Parameters(CreateSceneRequest {
+        scene_json: r#"{"scene_id":"plaza","characters":[]}"#.to_string(),
+        idempotency_key: None,
+    }))
+    .unwrap();
+    let r1 = s
+        .add_scene_character_impl(Parameters(AddSceneCharacterRequest {
+            scene_id: "plaza".to_string(),
+            character_id: "alice".to_string(),
+            role: None,
+            intro: None,
+            idempotency_key: Some("ascx-key".to_string()),
+        }))
+        .unwrap();
+    let r2 = s
+        .add_scene_character_impl(Parameters(AddSceneCharacterRequest {
+            scene_id: "plaza".to_string(),
+            character_id: "bob".to_string(),
+            role: None,
+            intro: None,
+            idempotency_key: Some("ascx-key".to_string()),
+        }))
+        .unwrap();
+    assert_eq!(r1, r2);
+    // Only one character added (cache hit prevented second insert)
+    let scene = s
+        .get_scene_impl(Parameters(GetSceneRequest {
+            scene_id: "plaza".to_string(),
+        }))
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&scene).unwrap();
+    assert_eq!(v["characters"].as_array().unwrap().len(), 1);
+}
+
 // ── P1: delete_character + extended idempotency ──────────────────────────
 
 #[test]

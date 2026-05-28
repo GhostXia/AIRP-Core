@@ -41,9 +41,9 @@
 
 | 项 | 值 |
 |---|---|
-| 测试 | **404** passing（lib 399 + integration 5），1 ignored |
+| 测试 | **411** passing（lib 406 + integration 5），1 ignored |
 | Clippy `--lib --bins -- -D warnings` | **0** warning |
-| MCP 工具 | 26（含 5 user persona + 4 P0 读 + delete_character，全部带 ToolAnnotations） |
+| MCP 工具 | 30（含 5 user persona + 4 P0 读 + delete_character + 4 scene CRUD，全部带 ToolAnnotations） |
 | MCP 资源 | 3 静态 + 9 模板 |
 | MCP Prompts | 5 |
 | 已完成里程碑 | M0–M3 / M_CF / M_PR (PR-1~10) / M_MS / M_MCP / M_DX / M_LS / M_CA / **M_HARDEN (13/13)** |
@@ -153,6 +153,10 @@ airp-core diagnose --character-id alice   # 聚焦单个角色
 | `get_character` | 取角色卡 + 元数据 | readonly |
 | `get_live_state` | 读角色当前 state/live.json | readonly |
 | `delete_character` | 删除整个角色目录（默认 dry-run） | destructive |
+| `list_scenes` | 列出全部场景 ID | readonly |
+| `get_scene` | 读场景完整配置 | readonly |
+| `create_scene` | 从 JSON 创建/覆盖场景 | mutate / idempotent |
+| `add_scene_character` | 向场景追加角色 | mutate |
 
 **User persona 双层模型（M_UP）：**
 - **元设定 / Base**（`users/{id}/persona.json`）：初始人设，可通过 `persona.lock` 封存为只读契约
