@@ -108,6 +108,57 @@ impl<'de> Deserialize<'de> for PresetId {
     }
 }
 
+/// AUDIT-2: `data/scenes/{id}/` 下的场景 ID。M_MS 多角色场景使用。
+///
+/// 与 [`CharacterId`] / [`PresetId`] 同构：构造时调 `validate_id_segment`，
+/// serde 反序列化路径自动校验，所以 axum / MCP 工具收到的 `SceneId` 一定合法。
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SceneId(String);
+
+impl SceneId {
+    /// 构造时校验。校验失败返回 `AirpError::BadRequest`。
+    pub fn new(s: impl Into<String>) -> Result<Self, AirpError> {
+        let s = s.into();
+        validate_id_segment(&s)?;
+        Ok(Self(s))
+    }
+
+    /// 返回内部字符串的不可变引用。
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// 消耗 newtype，取回内部字符串。
+    pub fn into_inner(self) -> String {
+        self.0
+    }
+}
+
+impl AsRef<str> for SceneId {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for SceneId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl Serialize for SceneId {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        self.0.serialize(s)
+    }
+}
+
+impl<'de> Deserialize<'de> for SceneId {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        SceneId::new(s).map_err(serde::de::Error::custom)
+    }
+}
+
 /// 会话 ID（M5.1 多 session 时使用）。基于 UUID v4，无需路径段校验。
 ///
 /// 默认构造一个全新的 v4 UUID；`parse` 接受标准 UUID 字符串。
@@ -230,5 +281,35 @@ mod tests {
         let json = serde_json::to_string(&sid).unwrap();
         let back: SessionId = serde_json::from_str(&json).unwrap();
         assert_eq!(sid, back);
+    }
+
+    // AUDIT-2: SceneId newtype tests
+    #[test]
+    fn scene_id_valid() {
+        let id = SceneId::new("dawn_tavern").unwrap();
+        assert_eq!(id.as_str(), "dawn_tavern");
+    }
+
+    #[test]
+    fn scene_id_rejects_traversal() {
+        assert!(SceneId::new("../etc").is_err());
+        assert!(SceneId::new("a/b").is_err());
+        assert!(SceneId::new("").is_err());
+        assert!(SceneId::new(".hidden").is_err());
+    }
+
+    #[test]
+    fn scene_id_serde_roundtrip() {
+        let id = SceneId::new("scene_01").unwrap();
+        let json = serde_json::to_string(&id).unwrap();
+        assert_eq!(json, "\"scene_01\"");
+        let back: SceneId = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.as_str(), "scene_01");
+    }
+
+    #[test]
+    fn scene_id_serde_rejects_invalid() {
+        let res: Result<SceneId, _> = serde_json::from_str("\"../bad\"");
+        assert!(res.is_err());
     }
 }
