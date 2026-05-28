@@ -180,6 +180,34 @@ fn default_state_history_n() -> usize {
 // #[tool_router] 宏生成的 fn tool_router() 是 mod.rs 私有，故 thin wrappers 留在 mod.rs。
 // 此处只存放实际业务逻辑（供 mod.rs wrappers 调用，pub(super) 可见）。
 
+/// AUDIT-13: Emit `notifications/resources/updated` to all subscribers of a URI.
+///
+/// Spawned as fire-and-forget so synchronous tool handlers don't block on
+/// network I/O. Idempotent + no-op when no subscribers match (common path).
+pub(super) fn emit_resource_updated(state_subs: &super::StateSubs, uri: String) {
+    let peers: Vec<rmcp::service::Peer<rmcp::service::RoleServer>> = {
+        let guard = state_subs.lock().unwrap_or_else(|e| e.into_inner());
+        guard
+            .iter()
+            .filter(|(u, _)| u == &uri)
+            .map(|(_, p)| p.clone())
+            .collect()
+    };
+    if peers.is_empty() {
+        return;
+    }
+    let param = rmcp::model::ResourceUpdatedNotificationParam::new(uri.clone());
+    for peer in peers {
+        let param = param.clone();
+        let uri_dbg = uri.clone();
+        tokio::spawn(async move {
+            if let Err(e) = peer.notify_resource_updated(param).await {
+                tracing::debug!(uri = %uri_dbg, err = %e, "AUDIT-13: notify_resource_updated failed (client disconnected?)");
+            }
+        });
+    }
+}
+
 impl AirpMcpServer {
     /// MCP-1 实现。
     pub(super) fn ping_impl(&self, _params: Parameters<PingRequest>) -> String {
@@ -716,6 +744,12 @@ impl AirpMcpServer {
             use std::io::Write as _;
             let _ = f.write_all(line.as_bytes());
         }
+
+        // AUDIT-13: emit notification to subscribers of state/live resource.
+        emit_resource_updated(
+            &self.state_subs,
+            format!("airp://characters/{}/state/live", req.character_id),
+        );
 
         Ok(serde_json::json!({
             "character_id": req.character_id,
