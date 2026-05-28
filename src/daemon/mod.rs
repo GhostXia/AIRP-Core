@@ -215,11 +215,21 @@ pub fn create_router(state: Arc<DaemonState>) -> Router {
         )
         .route_layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
 
+    // AUDIT-1: `/mcp/v1` previously bypassed `auth_middleware`. With
+    // AIRP_ACCESS_KEY unset, the middleware is a no-op; with it set, all MCP
+    // HTTP requests must carry `Authorization: Bearer <key>` — matching the
+    // protection level of /v1/* and stopping local cross-user MCP hijacking.
+    let mcp_routes = crate::mcp::mcp_http_router(
+        state.data_root.clone(),
+        state.state_subs.clone(),
+    )
+    .route_layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
+
     Router::new()
         .route("/", get(|| async { Html(include_str!("../index.html")) }))
         .route("/version", get(version_handler))
         .merge(v1_routes)
-        .merge(crate::mcp::mcp_http_router(state.data_root.clone(), state.state_subs.clone()))
+        .merge(mcp_routes)
         .layer(cors)
         .with_state(state)
 }
@@ -710,6 +720,54 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    // AUDIT-1: /mcp/v1 rejects unauthenticated requests when AIRP_ACCESS_KEY is set
+    #[tokio::test]
+    async fn test_audit_1_mcp_v1_rejects_no_auth_when_key_set() {
+        let state = make_state_with_key(Some("secret-key"));
+        let app = create_router(state);
+        let resp = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/mcp/v1")
+                    .body(Body::from(r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::UNAUTHORIZED,
+            "/mcp/v1 should require auth when AIRP_ACCESS_KEY is set"
+        );
+    }
+
+    // AUDIT-1: /mcp/v1 passes through when no key is configured (back-compat)
+    #[tokio::test]
+    async fn test_audit_1_mcp_v1_open_when_no_key() {
+        let (state, _tmp) = make_state_no_key();
+        let app = create_router(state);
+        let resp = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/mcp/v1")
+                    .body(Body::from(r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        // Without auth key, request passes through middleware. The rmcp
+        // handler itself may return any status (200/400/406 depending on
+        // headers), but it must NOT be 401 — that would prove the middleware
+        // is blocking.
+        assert_ne!(
+            resp.status(),
+            StatusCode::UNAUTHORIZED,
+            "/mcp/v1 should not require auth when AIRP_ACCESS_KEY is unset"
+        );
     }
 }
 
