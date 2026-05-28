@@ -41,13 +41,13 @@
 
 | 项 | 值 |
 |---|---|
-| 测试 | **314** passing（lib 309 + integration 5），1 ignored |
+| 测试 | **366** passing（lib 361 + integration 5），1 ignored |
 | Clippy `--lib --bins -- -D warnings` | **0** warning |
 | MCP 工具 | 16（全部带 MCP ToolAnnotations 元数据） |
 | MCP 资源 | 9 个静态 + 模板 |
 | MCP Prompts | 5 |
-| 已完成里程碑 | M0–M3 / M_CF / M_PR (PR-1~10) / M_MS / M_MCP / M_DX / M_LS / M_CA / AUDIT-11 |
-| 进行中 | M_HARDEN（13 个 AUDIT-* 子任务，11 待办） |
+| 已完成里程碑 | M0–M3 / M_CF / M_PR (PR-1~10) / M_MS / M_MCP / M_DX / M_LS / M_CA / **M_HARDEN (13/13)** |
+| 进行中 | — |
 
 ---
 
@@ -312,10 +312,7 @@ docker-compose up --build -d
 - M_DX：API key 鉴权 + Docker 部署
 - M_LS：实时状态系统 + schema 推断
 - M_CA：Agent-driven 分析提示词
-- AUDIT-11：MCP ToolAnnotations 元数据（M_HARDEN 首炮 ✅ 2026-05-28）
-
-**进行中：**
-- M_HARDEN：13 个 AUDIT-* 子任务（鉴权 / newtype ID 回归 / idempotency keys / subscribe verify / 单测覆盖等）
+- **M_HARDEN：13/13 子任务全部完成**（鉴权扩展到 /mcp/v1、SceneId newtype 全量 retrofit、tool side_effect 元数据、resource subscribe emit、idempotency keys、stdio 优雅停机、/version 端点、rmcp pin、卷封存/跨卷维护软提示、list-tools CLI、safe_resolve property test、RwLock 决策验证）
 
 **预留里程碑：**
 - M_HELPERS（airp-mcp-helpers Rust crate，生态杠杆）
