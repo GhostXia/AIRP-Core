@@ -669,10 +669,52 @@ impl AirpMcpServer {
         log.append(&self.data_root, msg)
             .map_err(|e| ErrorData::internal_error(format!("写 ChatLog 失败: {}", e), None))?;
 
+        // AUDIT-6 / AUDIT-7: emit soft hints to the agent. Server never
+        // takes action (戒律 1 forbids automatic side-effects) — we just
+        // surface the data so the client can decide to call seal_volume /
+        // perform cross-volume maintenance.
+        let mut hints: Vec<serde_json::Value> = Vec::new();
+
+        // AUDIT-6: estimated total tokens across all chat messages. When it
+        // exceeds the configured soft threshold (default 2500), suggest the
+        // agent seal current.md into a new volume.
+        let total_chat_tokens: usize = log
+            .messages
+            .iter()
+            .map(|m| crate::volume_store::estimate_tokens(&m.content))
+            .sum();
+        let soft = crate::config::VolumeConfig::default().soft_threshold_tokens;
+        if total_chat_tokens > soft {
+            hints.push(serde_json::json!({
+                "kind": "volume_seal_recommended",
+                "current_tokens": total_chat_tokens,
+                "soft_threshold": soft,
+                "message": "Chat tokens exceed soft threshold; consider archiving current.md as a new volume."
+            }));
+        }
+
+        // AUDIT-7: count archived volumes under the legacy session memory dir.
+        // When 3+ volumes exist, suggest cross-volume entity maintenance.
+        // Read-only — we do NOT create the directory if it's missing.
+        let memory_dir = self
+            .data_root
+            .join("characters")
+            .join(&req.character_id)
+            .join("memory");
+        let vol_count = crate::volume_store::list_volume_numbers(&memory_dir).len();
+        if vol_count >= 3 {
+            hints.push(serde_json::json!({
+                "kind": "volume_maintenance_available",
+                "volume_count": vol_count,
+                "message": "Three or more volumes present; cross-volume entity maintenance may improve memory recall."
+            }));
+        }
+
         Ok(serde_json::json!({
             "character_id": req.character_id,
             "role": req.role,
             "total_messages": log.messages.len(),
+            "hints": hints,
         })
         .to_string())
     }

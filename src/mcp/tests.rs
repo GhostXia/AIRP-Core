@@ -1291,6 +1291,118 @@ fn test_ds11_get_state_history_invalid_id_rejected() {
     assert!(err.message.contains("非法 character_id"));
 }
 
+// ── AUDIT-6 / AUDIT-7: append_message soft hints ──────────────────────────
+
+#[test]
+fn test_audit_6_short_message_no_seal_hint() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    std::fs::create_dir_all(tmp.path().join("characters").join("npc1")).unwrap();
+
+    let resp = s
+        .append_message_impl(Parameters(AppendMessageRequest {
+            character_id: "npc1".to_string(),
+            role: "user".to_string(),
+            content: "hello".to_string(),
+            session_id: None,
+        }))
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    // No volume_seal hint when chat is tiny
+    let hints = v["hints"].as_array().unwrap();
+    assert!(
+        !hints
+            .iter()
+            .any(|h| h["kind"] == "volume_seal_recommended"),
+        "tiny chat should not trigger volume_seal_recommended hint"
+    );
+}
+
+#[test]
+fn test_audit_6_long_chat_emits_seal_hint() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    std::fs::create_dir_all(tmp.path().join("characters").join("npc2")).unwrap();
+
+    // Default soft threshold is 2500 tokens. ASCII estimate = chars/4, so
+    // we need ~10000 chars to safely exceed. Stuff a single long message.
+    let bulk = "a".repeat(12000);
+    let resp = s
+        .append_message_impl(Parameters(AppendMessageRequest {
+            character_id: "npc2".to_string(),
+            role: "assistant".to_string(),
+            content: bulk,
+            session_id: None,
+        }))
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    let hints = v["hints"].as_array().unwrap();
+    let seal_hint = hints
+        .iter()
+        .find(|h| h["kind"] == "volume_seal_recommended")
+        .expect("long chat should emit volume_seal_recommended hint");
+    assert!(seal_hint["current_tokens"].as_u64().unwrap() > 2500);
+    assert_eq!(seal_hint["soft_threshold"], 2500);
+}
+
+#[test]
+fn test_audit_7_three_volumes_emits_maintenance_hint() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    let memory_volumes = tmp
+        .path()
+        .join("characters")
+        .join("npc3")
+        .join("memory")
+        .join("volumes");
+    std::fs::create_dir_all(&memory_volumes).unwrap();
+    // Pre-create 3 fake volumes
+    for i in 1..=3 {
+        std::fs::write(memory_volumes.join(format!("vol_{:03}.md", i)), "").unwrap();
+    }
+
+    let resp = s
+        .append_message_impl(Parameters(AppendMessageRequest {
+            character_id: "npc3".to_string(),
+            role: "user".to_string(),
+            content: "x".to_string(),
+            session_id: None,
+        }))
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    let hints = v["hints"].as_array().unwrap();
+    let maint = hints
+        .iter()
+        .find(|h| h["kind"] == "volume_maintenance_available")
+        .expect("3 volumes should emit volume_maintenance_available hint");
+    assert_eq!(maint["volume_count"], 3);
+}
+
+#[test]
+fn test_audit_7_no_volumes_no_maintenance_hint() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    std::fs::create_dir_all(tmp.path().join("characters").join("npc4")).unwrap();
+    // No memory/ dir at all
+
+    let resp = s
+        .append_message_impl(Parameters(AppendMessageRequest {
+            character_id: "npc4".to_string(),
+            role: "user".to_string(),
+            content: "x".to_string(),
+            session_id: None,
+        }))
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    let hints = v["hints"].as_array().unwrap();
+    assert!(
+        !hints
+            .iter()
+            .any(|h| h["kind"] == "volume_maintenance_available"),
+        "no volumes should mean no maintenance hint"
+    );
+}
+
 // ── AUDIT-13: resource subscribe emit ─────────────────────────────────────
 
 #[tokio::test]
