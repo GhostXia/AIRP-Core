@@ -10,7 +10,7 @@ homepage = "https://github.com/GhostXia/AIRP-Core"
 readme = "README.md"
 
 [dependencies]
-tokio = { version = "1.38", features = ["rt-multi-thread", "macros", "net", "sync", "io-util", "time", "fs"] }
+tokio = { version = "1.38", features = ["rt-multi-thread", "macros", "net", "sync", "io-util", "time", "fs", "signal"] }
 axum = { version = "0.7", features = ["macros"] }
 tower-http = { version = "0.5", features = ["cors"] }
 tower_governor = "0.4"

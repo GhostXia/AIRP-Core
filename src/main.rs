@@ -148,6 +148,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Mcp { data_dir } => {
             // M_MCP MCP-1: stdio JSON-RPC 主循环。
             // 关键：所有 tracing 必须走 stderr，避免污染 stdout 的 JSON-RPC 通道。
+            //
+            // AUDIT-9: graceful shutdown on Ctrl+C. We hold a cancellation token
+            // from the running service and trigger it from a separate signal task,
+            // so the main `service.waiting()` future resolves cleanly (rmcp flushes
+            // pending writes + closes transport) instead of getting SIGKILL'd
+            // mid-JSONL-append.
             use rmcp::{transport::stdio, ServiceExt};
             let root = data_dir
                 .or_else(|| std::env::var("AIRP_DATA_DIR").ok().map(PathBuf::from))
@@ -157,7 +163,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             tracing::info!(data_root = ?root, "MCP-1: 启动 MCP Server (stdio transport)");
             let server = airp_core::mcp::AirpMcpServer::new(root);
             let service = server.serve(stdio()).await?;
-            service.waiting().await?;
+
+            // AUDIT-9: spawn signal handler that triggers graceful shutdown.
+            let cancel_token = service.cancellation_token();
+            let signal_task = tokio::spawn(async move {
+                if tokio::signal::ctrl_c().await.is_ok() {
+                    tracing::info!("AUDIT-9: 收到 Ctrl+C，请求 MCP 服务优雅停机");
+                    cancel_token.cancel();
+                }
+            });
+
+            let quit_reason = service.waiting().await?;
+            // Abort the signal task if waiting() returned for any other reason
+            // (e.g. client closed stdin). Idempotent — no-op if signal already fired.
+            signal_task.abort();
+            tracing::info!(?quit_reason, "MCP stdio server 已退出");
         }
         Commands::Run {
             character,
