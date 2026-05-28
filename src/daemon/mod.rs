@@ -217,10 +217,30 @@ pub fn create_router(state: Arc<DaemonState>) -> Router {
 
     Router::new()
         .route("/", get(|| async { Html(include_str!("../index.html")) }))
+        .route("/version", get(version_handler))
         .merge(v1_routes)
         .merge(crate::mcp::mcp_http_router(state.data_root.clone(), state.state_subs.clone()))
         .layer(cors)
         .with_state(state)
+}
+
+/// AUDIT-10: Diagnostic version endpoint for harness / monitoring tools.
+///
+/// Returns crate name, version, and MCP tool count. Unauthenticated by design —
+/// safe to expose since contents are static build metadata.
+async fn version_handler() -> axum::Json<VersionInfo> {
+    axum::Json(VersionInfo {
+        name: env!("CARGO_PKG_NAME"),
+        version: env!("CARGO_PKG_VERSION"),
+        mcp_tools_count: 16,
+    })
+}
+
+#[derive(serde::Serialize)]
+struct VersionInfo {
+    name: &'static str,
+    version: &'static str,
+    mcp_tools_count: u32,
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -651,6 +671,45 @@ mod tests {
         let entries: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
         assert_eq!(entries.len(), 3);
         assert_eq!(entries[0]["state"]["n"], 10);
+    }
+
+    // AUDIT-10: /version diagnostic endpoint
+    #[tokio::test]
+    async fn test_audit_10_version_endpoint_returns_metadata() {
+        let state = make_state_with_key(None);
+        let app = create_router(state);
+        let resp = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/version")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v["name"], "airp-core");
+        assert!(v["version"].as_str().unwrap().len() > 0);
+        assert_eq!(v["mcp_tools_count"], 16);
+    }
+
+    // AUDIT-10: /version requires no auth even when access_api_key is set
+    #[tokio::test]
+    async fn test_audit_10_version_unauthenticated_with_key_set() {
+        let state = make_state_with_key(Some("secret-key"));
+        let app = create_router(state);
+        let resp = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/version")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
     }
 }
 

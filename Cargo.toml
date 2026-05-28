@@ -36,7 +36,9 @@ aho-corasick = "1"
 sha2 = "0.10"
 # M_MCP：Rust 官方 MCP SDK（Model Context Protocol）
 # stdio + HTTP/SSE transport；schemars 派生 JSON schema 用于工具参数。
-rmcp = { version = "1.7", features = ["server", "transport-io", "macros", "transport-streamable-http-server", "transport-streamable-http-server-session"] }
+# AUDIT-8: pin to ~1.7 (>=1.7.0, <1.8.0) — MCP protocol is fast-moving;
+# minor bumps may break wire compatibility, so allow only patch updates.
+rmcp = { version = "~1.7", features = ["server", "transport-io", "macros", "transport-streamable-http-server", "transport-streamable-http-server-session"] }
 schemars = "0.8"
 
 [dev-dependencies]
