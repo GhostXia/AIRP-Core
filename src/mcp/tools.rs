@@ -1,4 +1,4 @@
-use rmcp::{handler::server::wrapper::Parameters, schemars, ErrorData};
+﻿use rmcp::{handler::server::wrapper::Parameters, schemars, ErrorData};
 
 use super::AirpMcpServer;
 
@@ -1580,11 +1580,10 @@ impl AirpMcpServer {
             }
         }
 
-        crate::data_dir::validate_id_segment(&req.user_id)
-            .map_err(|e| ErrorData::invalid_params(format!("非法 user_id: {}", e), None))?;
+        let __uid = crate::types::UserId::new(&req.user_id).map_err(|e| ErrorData::invalid_params(format!("非法 user_id: {}", e), None))?;
 
         // Reject if locked
-        let lock_path = crate::data_dir::user_persona_lock_path(&self.data_root, &req.user_id);
+        let lock_path = crate::data_dir::user_persona_lock_path(&self.data_root, &__uid);
         if lock_path.exists() {
             return Err(ErrorData::invalid_params(
                 format!(
@@ -1618,11 +1617,11 @@ impl AirpMcpServer {
             .to_string();
 
         // Write
-        let user_dir = crate::data_dir::user_dir(&self.data_root, &req.user_id);
+        let user_dir = crate::data_dir::user_dir(&self.data_root, &__uid);
         std::fs::create_dir_all(&user_dir).map_err(|e| {
             ErrorData::internal_error(format!("创建 users/{} 目录失败: {}", req.user_id, e), None)
         })?;
-        let persona_path = crate::data_dir::user_persona_path(&self.data_root, &req.user_id);
+        let persona_path = crate::data_dir::user_persona_path(&self.data_root, &__uid);
         let pretty = serde_json::to_string_pretty(&parsed).unwrap_or(req.persona_json.clone());
         std::fs::write(&persona_path, pretty.as_bytes()).map_err(|e| {
             ErrorData::internal_error(format!("写 persona.json 失败: {}", e), None)
@@ -1657,10 +1656,9 @@ impl AirpMcpServer {
         &self,
         Parameters(req): Parameters<LockUserPersonaRequest>,
     ) -> Result<String, ErrorData> {
-        crate::data_dir::validate_id_segment(&req.user_id)
-            .map_err(|e| ErrorData::invalid_params(format!("非法 user_id: {}", e), None))?;
+        let __uid = crate::types::UserId::new(&req.user_id).map_err(|e| ErrorData::invalid_params(format!("非法 user_id: {}", e), None))?;
 
-        let persona_path = crate::data_dir::user_persona_path(&self.data_root, &req.user_id);
+        let persona_path = crate::data_dir::user_persona_path(&self.data_root, &__uid);
         if !persona_path.exists() {
             return Err(ErrorData::invalid_params(
                 format!("user `{}` persona.json 不存在；先调 import_user_persona", req.user_id),
@@ -1668,7 +1666,7 @@ impl AirpMcpServer {
             ));
         }
 
-        let lock_path = crate::data_dir::user_persona_lock_path(&self.data_root, &req.user_id);
+        let lock_path = crate::data_dir::user_persona_lock_path(&self.data_root, &__uid);
         let was_locked = lock_path.exists();
         if !was_locked {
             std::fs::write(&lock_path, b"locked\n").map_err(|e| {
@@ -1689,10 +1687,9 @@ impl AirpMcpServer {
         &self,
         Parameters(req): Parameters<GetUserPersonaRequest>,
     ) -> Result<String, ErrorData> {
-        crate::data_dir::validate_id_segment(&req.user_id)
-            .map_err(|e| ErrorData::invalid_params(format!("非法 user_id: {}", e), None))?;
+        let __uid = crate::types::UserId::new(&req.user_id).map_err(|e| ErrorData::invalid_params(format!("非法 user_id: {}", e), None))?;
 
-        let persona_path = crate::data_dir::user_persona_path(&self.data_root, &req.user_id);
+        let persona_path = crate::data_dir::user_persona_path(&self.data_root, &__uid);
         let persona: Option<serde_json::Value> = if persona_path.exists() {
             std::fs::read_to_string(&persona_path)
                 .ok()
@@ -1700,9 +1697,9 @@ impl AirpMcpServer {
         } else {
             None
         };
-        let locked = crate::data_dir::user_persona_lock_path(&self.data_root, &req.user_id).exists();
+        let locked = crate::data_dir::user_persona_lock_path(&self.data_root, &__uid).exists();
 
-        let live_path = crate::data_dir::user_state_live_path(&self.data_root, &req.user_id);
+        let live_path = crate::data_dir::user_state_live_path(&self.data_root, &__uid);
         let current_state: Option<serde_json::Value> = if live_path.exists() {
             std::fs::read_to_string(&live_path)
                 .ok()
@@ -1752,8 +1749,7 @@ impl AirpMcpServer {
             }
         }
 
-        crate::data_dir::validate_id_segment(&req.user_id)
-            .map_err(|e| ErrorData::invalid_params(format!("非法 user_id: {}", e), None))?;
+        let __uid = crate::types::UserId::new(&req.user_id).map_err(|e| ErrorData::invalid_params(format!("非法 user_id: {}", e), None))?;
 
         let delta: serde_json::Value = serde_json::from_str(&req.state_json).map_err(|e| {
             ErrorData::invalid_params(format!("state_json 非合法 JSON: {}", e), None)
@@ -1765,7 +1761,7 @@ impl AirpMcpServer {
             ));
         }
 
-        let state_dir = crate::data_dir::user_state_dir(&self.data_root, &req.user_id)
+        let state_dir = crate::data_dir::user_state_dir(&self.data_root, &__uid)
             .map_err(|e| ErrorData::internal_error(format!("创建 state/ 目录失败: {}", e), None))?;
         let live_path = state_dir.join("live.json");
 
@@ -1796,7 +1792,7 @@ impl AirpMcpServer {
 
         // Append snapshot
         let history_path =
-            crate::data_dir::user_state_history_path(&self.data_root, &req.user_id);
+            crate::data_dir::user_state_history_path(&self.data_root, &__uid);
         let snapshot = serde_json::json!({
             "ts": chrono::Utc::now().to_rfc3339(),
             "state": merged,
@@ -1838,11 +1834,10 @@ impl AirpMcpServer {
         &self,
         Parameters(req): Parameters<GetUserStateHistoryRequest>,
     ) -> Result<String, ErrorData> {
-        crate::data_dir::validate_id_segment(&req.user_id)
-            .map_err(|e| ErrorData::invalid_params(format!("非法 user_id: {}", e), None))?;
+        let __uid = crate::types::UserId::new(&req.user_id).map_err(|e| ErrorData::invalid_params(format!("非法 user_id: {}", e), None))?;
 
         let history_path =
-            crate::data_dir::user_state_history_path(&self.data_root, &req.user_id);
+            crate::data_dir::user_state_history_path(&self.data_root, &__uid);
         let n = req.n.clamp(1, 1000);
         let entries: Vec<serde_json::Value> = if history_path.exists() {
             std::fs::read_to_string(&history_path)

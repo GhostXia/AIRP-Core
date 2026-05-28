@@ -229,12 +229,12 @@ impl AirpMcpServer {
                 .ok_or_else(|| ErrorData::invalid_params("缺 user_id".to_string(), None))?;
             let sub_full = split.next().unwrap_or("");
             let sub = sub_full.split_once('?').map(|(s, _)| s).unwrap_or(sub_full);
-            crate::data_dir::validate_id_segment(uid).map_err(|e| {
+            let uid = crate::types::UserId::new(uid).map_err(|e| {
                 ErrorData::invalid_params(format!("非法 user_id: {}", e), None)
             })?;
             match sub {
                 "persona" => {
-                    let path = crate::data_dir::user_persona_path(&self.data_root, uid);
+                    let path = crate::data_dir::user_persona_path(&self.data_root, &uid);
                     let body = if path.exists() {
                         std::fs::read_to_string(&path)
                             .map(|s| crate::data_dir::strip_utf8_bom(&s).to_owned())
@@ -248,7 +248,7 @@ impl AirpMcpServer {
                     ]);
                 }
                 "state/live" => {
-                    let path = crate::data_dir::user_state_live_path(&self.data_root, uid);
+                    let path = crate::data_dir::user_state_live_path(&self.data_root, &uid);
                     let body = if path.exists() {
                         std::fs::read_to_string(&path)
                             .map(|s| crate::data_dir::strip_utf8_bom(&s).to_owned())

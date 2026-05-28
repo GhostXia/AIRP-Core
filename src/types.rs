@@ -159,6 +159,54 @@ impl<'de> Deserialize<'de> for SceneId {
     }
 }
 
+/// M_UP / P1: `data/users/{user_id}/` 下的用户 ID。
+///
+/// 与 `CharacterId` / `PresetId` / `SceneId` 同构：构造时 `validate_id_segment`，
+/// serde 反序列化路径自动校验。
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct UserId(String);
+
+impl UserId {
+    pub fn new(s: impl Into<String>) -> Result<Self, AirpError> {
+        let s = s.into();
+        validate_id_segment(&s)?;
+        Ok(Self(s))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn into_inner(self) -> String {
+        self.0
+    }
+}
+
+impl AsRef<str> for UserId {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for UserId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl Serialize for UserId {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        self.0.serialize(s)
+    }
+}
+
+impl<'de> Deserialize<'de> for UserId {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        UserId::new(s).map_err(serde::de::Error::custom)
+    }
+}
+
 /// 会话 ID（M5.1 多 session 时使用）。基于 UUID v4，无需路径段校验。
 ///
 /// 默认构造一个全新的 v4 UUID；`parse` 接受标准 UUID 字符串。
@@ -310,6 +358,36 @@ mod tests {
     #[test]
     fn scene_id_serde_rejects_invalid() {
         let res: Result<SceneId, _> = serde_json::from_str("\"../bad\"");
+        assert!(res.is_err());
+    }
+
+    // M_UP / P1: UserId newtype tests
+    #[test]
+    fn user_id_valid() {
+        let id = UserId::new("alice").unwrap();
+        assert_eq!(id.as_str(), "alice");
+    }
+
+    #[test]
+    fn user_id_rejects_traversal() {
+        assert!(UserId::new("../etc").is_err());
+        assert!(UserId::new("a/b").is_err());
+        assert!(UserId::new("").is_err());
+        assert!(UserId::new(".hidden").is_err());
+    }
+
+    #[test]
+    fn user_id_serde_roundtrip() {
+        let id = UserId::new("alice").unwrap();
+        let json = serde_json::to_string(&id).unwrap();
+        assert_eq!(json, "\"alice\"");
+        let back: UserId = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.as_str(), "alice");
+    }
+
+    #[test]
+    fn user_id_serde_rejects_invalid() {
+        let res: Result<UserId, _> = serde_json::from_str("\"../bad\"");
         assert!(res.is_err());
     }
 }

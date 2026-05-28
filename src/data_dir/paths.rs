@@ -324,34 +324,36 @@ pub fn list_presets(root: &Path) -> Result<Vec<String>, AirpError> {
 // across an entire RP campaign.
 
 /// `users/{user_id}/` directory (not auto-created).
-pub fn user_dir(root: &Path, user_id: &str) -> PathBuf {
-    root.join("users").join(user_id)
+///
+/// P1: signature takes `&UserId` so callers cannot bypass id validation.
+pub fn user_dir(root: &Path, user_id: &crate::types::UserId) -> PathBuf {
+    root.join("users").join(user_id.as_str())
 }
 
 /// `users/{user_id}/persona.json` — immutable base persona (元设定).
-pub fn user_persona_path(root: &Path, user_id: &str) -> PathBuf {
+pub fn user_persona_path(root: &Path, user_id: &crate::types::UserId) -> PathBuf {
     user_dir(root, user_id).join("persona.json")
 }
 
 /// `users/{user_id}/persona.lock` — sentinel; existence = persona is sealed.
-pub fn user_persona_lock_path(root: &Path, user_id: &str) -> PathBuf {
+pub fn user_persona_lock_path(root: &Path, user_id: &crate::types::UserId) -> PathBuf {
     user_dir(root, user_id).join("persona.lock")
 }
 
 /// `users/{user_id}/state/` directory, created on demand.
-pub fn user_state_dir(root: &Path, user_id: &str) -> Result<PathBuf, AirpError> {
+pub fn user_state_dir(root: &Path, user_id: &crate::types::UserId) -> Result<PathBuf, AirpError> {
     let dir = user_dir(root, user_id).join("state");
     fs::create_dir_all(&dir)?;
     Ok(dir)
 }
 
 /// `users/{user_id}/state/live.json` — current 变量设定 (drift overlay).
-pub fn user_state_live_path(root: &Path, user_id: &str) -> PathBuf {
+pub fn user_state_live_path(root: &Path, user_id: &crate::types::UserId) -> PathBuf {
     user_dir(root, user_id).join("state").join("live.json")
 }
 
 /// `users/{user_id}/state/history.jsonl` — append-only snapshot timeline.
-pub fn user_state_history_path(root: &Path, user_id: &str) -> PathBuf {
+pub fn user_state_history_path(root: &Path, user_id: &crate::types::UserId) -> PathBuf {
     user_dir(root, user_id).join("state").join("history.jsonl")
 }
 
