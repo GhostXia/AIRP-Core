@@ -32,11 +32,47 @@ pub struct SyncEntry {
     pub size: u64,
 }
 
-/// Compute SHA-256 hex of a file.
+/// A2-6: process-wide SHA-256 cache keyed by file path.
+///
+/// `build_manifest` rehashed every file on every request and `find_blob`
+/// re-hashed the entire tree O(M×N) per blob fetch. This cache stores
+/// `(mtime_nanos, size) -> hash`; a file is rehashed only when its mtime or
+/// size changes. Warm-cache manifest/find degrade to stat-only.
+///
+/// Bounded by the number of distinct files under `data/` (a local dir), so
+/// unbounded growth is not a practical concern for a single-user daemon.
+/// Cache value: (mtime_nanos, size_bytes, sha256_hex).
+type CacheEntry = (u128, u64, String);
+type HashCache = std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, CacheEntry>>;
+
+static HASH_CACHE: once_cell::sync::Lazy<HashCache> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+/// Compute SHA-256 hex of a file, using the mtime/size cache when fresh.
 fn sha256_file(path: &FsPath) -> Result<String, std::io::Error> {
+    let meta = std::fs::metadata(path)?;
+    let size = meta.len();
+    let mtime = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+
+    if let Ok(cache) = HASH_CACHE.lock() {
+        if let Some((cached_mtime, cached_size, hash)) = cache.get(path) {
+            if *cached_mtime == mtime && *cached_size == size {
+                return Ok(hash.clone());
+            }
+        }
+    }
+
     let bytes = std::fs::read(path)?;
-    let digest = Sha256::digest(&bytes);
-    Ok(format!("{:x}", digest))
+    let hash = format!("{:x}", Sha256::digest(&bytes));
+    if let Ok(mut cache) = HASH_CACHE.lock() {
+        cache.insert(path.to_path_buf(), (mtime, size, hash.clone()));
+    }
+    Ok(hash)
 }
 
 /// Walk `root` recursively, returning `SyncEntry` for every regular file.
@@ -248,5 +284,31 @@ mod tests_dx5 {
         let entries = build_manifest(dir.path());
         assert_eq!(entries.len(), 2);
         assert!(entries[0].path < entries[1].path, "manifest must be sorted");
+    }
+
+    #[test]
+    fn test_a2_6_hash_cache_reflects_content_change() {
+        // A2-6: the (mtime,size) cache must not return a stale hash after the
+        // file content changes. Write, hash, rewrite with different content +
+        // size, hash again — second hash must differ.
+        let dir = tmp_data_root();
+        let chars_dir = dir.path().join("characters").join("cache_test");
+        fs::create_dir_all(&chars_dir).unwrap();
+        let f = chars_dir.join("card.json");
+
+        fs::write(&f, b"first").unwrap();
+        let h1 = sha256_file(&f).unwrap();
+        let h1_again = sha256_file(&f).unwrap(); // warm cache path
+        assert_eq!(h1, h1_again);
+
+        // Different length guarantees the size component of the key changes,
+        // so the cache entry is invalidated even if mtime resolution is coarse.
+        fs::write(&f, b"second-longer-content").unwrap();
+        let h2 = sha256_file(&f).unwrap();
+        assert_ne!(h1, h2, "hash must update after content change");
+
+        use sha2::{Digest, Sha256};
+        let expected = format!("{:x}", Sha256::digest(b"second-longer-content"));
+        assert_eq!(h2, expected);
     }
 }

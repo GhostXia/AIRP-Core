@@ -157,10 +157,17 @@ impl tower_governor::key_extractor::KeyExtractor for UserOrIpKeyExtractor {
                 }
             }
         }
-        req.extensions()
+        // A2-7: fall back to a fixed key instead of erroring when ConnectInfo
+        // is absent. Production always injects it (serve_with_connect_info);
+        // the fallback only matters for in-process tests (oneshot) and shared
+        // a single bucket there — never returns UnableToExtractKey, which would
+        // turn every request into an error once the governor covers all routes.
+        let key = req
+            .extensions()
             .get::<ConnectInfo<std::net::SocketAddr>>()
             .map(|ci| format!("ip:{}", ci.0.ip()))
-            .ok_or(tower_governor::GovernorError::UnableToExtractKey)
+            .unwrap_or_else(|| "ip:unknown".to_string());
+        Ok(key)
     }
 }
 
@@ -171,6 +178,11 @@ pub fn create_router(state: Arc<DaemonState>) -> Router {
         .allow_headers(Any)
         .allow_origin(Any);
 
+    // A2-7: rate limiting previously protected only /v1/chat/completions,
+    // leaving import / sync / scene / mcp endpoints unthrottled. Build ONE
+    // shared config (per-IP token bucket) and apply it as a router-wide
+    // `.layer()` over both v1 and mcp routes so every request path shares
+    // the same budget. 10 req/s sustained, burst 20 per IP.
     let governor_conf = Arc::new({
         let mut b = GovernorConfigBuilder::default();
         b.per_second(10).burst_size(20);
@@ -178,15 +190,9 @@ pub fn create_router(state: Arc<DaemonState>) -> Router {
             .finish()
             .expect("GovernorConfigBuilder 配置有效")
     });
-    let governor_layer = GovernorLayer {
-        config: governor_conf,
-    };
 
     let v1_routes = Router::new()
-        .route(
-            "/v1/chat/completions",
-            post(chat_completion).layer(governor_layer),
-        )
+        .route("/v1/chat/completions", post(chat_completion))
         .route("/v1/chat/history", post(get_chat_history))
         .route("/v1/chat/rollback", post(rollback_chat))
         .route("/v1/chat/regen", post(regen_chat))
@@ -237,16 +243,25 @@ pub fn create_router(state: Arc<DaemonState>) -> Router {
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
-        ));
+        ))
+        // A2-7: governor over all /v1/* (not just chat).
+        .layer(GovernorLayer {
+            config: governor_conf.clone(),
+        });
 
     // AUDIT-1: `/mcp/v1` previously bypassed `auth_middleware`. With
     // AIRP_ACCESS_KEY unset, the middleware is a no-op; with it set, all MCP
     // HTTP requests must carry `Authorization: Bearer <key>` — matching the
     // protection level of /v1/* and stopping local cross-user MCP hijacking.
-    let mcp_routes =
-        crate::mcp::mcp_http_router(state.data_root.clone(), state.state_subs.clone()).route_layer(
-            middleware::from_fn_with_state(state.clone(), auth_middleware),
-        );
+    // A2-7: also covered by the shared governor (import/sync/mcp now throttled).
+    let mcp_routes = crate::mcp::mcp_http_router(state.data_root.clone(), state.state_subs.clone())
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ))
+        .layer(GovernorLayer {
+            config: governor_conf.clone(),
+        });
 
     Router::new()
         .route("/", get(|| async { Html(include_str!("../index.html")) }))
@@ -889,13 +904,15 @@ mod tests_dx4 {
     }
 
     #[test]
-    fn test_dx4_fails_without_auth_or_connect_info() {
+    fn test_a2_7_falls_back_to_fixed_key_without_auth_or_connect_info() {
+        // A2-7: previously this errored (UnableToExtractKey). Now that the
+        // governor covers every route, erroring would turn ConnectInfo-less
+        // requests (in-process tests) into hard failures. The extractor falls
+        // back to a fixed "ip:unknown" key instead — never errors.
         let ext = UserOrIpKeyExtractor;
         let req = req_no_auth();
-        assert!(
-            ext.extract(&req).is_err(),
-            "should fail without auth or ConnectInfo"
-        );
+        let key = ext.extract(&req).expect("must not error");
+        assert_eq!(key, "ip:unknown");
     }
 
     #[test]
