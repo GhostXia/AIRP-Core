@@ -43,6 +43,20 @@ fn test_mcp1_get_info_has_tools_capability() {
     assert!(info.capabilities.tools.is_some());
 }
 
+/// A2-2 doc-sync guard: pin the exact registered tool count.
+///
+/// `/version` only asserts `>= 33`. This locks the precise number so adding or
+/// removing a tool fails CI until the doc claims (README / CLAUDE.md / docs/mcp.md,
+/// all currently "33") are bumped in the same change. Single source: the router.
+#[test]
+fn test_a2_2_tool_count_matches_docs() {
+    assert_eq!(
+        AirpMcpServer::tool_count(),
+        33,
+        "tool count changed — update README / CLAUDE.md / docs/mcp.md (all say 33) and this assert"
+    );
+}
+
 #[test]
 fn test_mcp1_ping_returns_version() {
     let s = AirpMcpServer::new(PathBuf::from("/tmp/airp"));
