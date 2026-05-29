@@ -119,6 +119,15 @@ pub fn check_and_increment(effective_root: &Path, config: &QuotaConfig) -> Resul
         )));
     }
 
+    // A2-1: token 维度同样在请求前 gate。若今日已用 token 达上限，拒绝新请求。
+    // record_tokens 在响应完成后回填实际输出 token，所以这里用的是上一轮累计值。
+    if config.max_tokens_per_day > 0 && state.tokens_today >= config.max_tokens_per_day {
+        return Err(AirpError::QuotaExceeded(format!(
+            "token 配额已达上限：今日已用约 {} tokens，上限 {} tokens/天",
+            state.tokens_today, config.max_tokens_per_day
+        )));
+    }
+
     state.requests_today += 1;
     state.save(&path);
     Ok(())
@@ -189,6 +198,24 @@ mod tests_dx3 {
         assert!(err.is_err(), "third request should be rejected");
         match err.unwrap_err() {
             AirpError::QuotaExceeded(_) => {}
+            e => panic!("expected QuotaExceeded, got {:?}", e),
+        }
+    }
+
+    #[test]
+    fn test_check_rejects_when_token_limit_reached() {
+        // A2-1: max_tokens_per_day must actually gate requests.
+        let dir = tempdir().unwrap();
+        let cfg = limited(0, 100); // unlimited requests, 100-token/day cap
+                                   // First request passes (tokens_today = 0).
+        check_and_increment(dir.path(), &cfg).unwrap();
+        // A completed response credits 150 output tokens — over budget.
+        record_tokens(dir.path(), 150);
+        // Next request must be rejected on the token dimension.
+        let err = check_and_increment(dir.path(), &cfg);
+        assert!(err.is_err(), "request past token cap should be rejected");
+        match err.unwrap_err() {
+            AirpError::QuotaExceeded(msg) => assert!(msg.contains("token")),
             e => panic!("expected QuotaExceeded, got {:?}", e),
         }
     }

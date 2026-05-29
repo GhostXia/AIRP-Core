@@ -47,7 +47,7 @@ AIRP-Core is an **MCP-first** RP data management server. The primary interface i
 Claude Code / MCP client
   → airp-core mcp (stdio) OR POST /mcp/v1 (HTTP)
   → src/mcp/mod.rs: AirpMcpServer (rmcp #[tool_router])
-      ├─ tools.rs: 13 tool implementations (import_card, start_session, …)
+      ├─ tools.rs: 33 tool implementations (import_card, start_session, …)
       ├─ resources.rs: static + template resources (airp://characters/…)
       └─ prompts.rs: Agent workflow prompts (analyze_character_card, …)
 ```
@@ -93,7 +93,7 @@ POST /v1/chat/completions
 | Module | Role |
 |---|---|
 | `mcp/mod.rs` | MCP server: `AirpMcpServer`, `#[tool_router]`, resource/prompt handlers |
-| `mcp/tools.rs` | 13 tool `_impl` methods (character + preset + RP workflow) |
+| `mcp/tools.rs` | 33 tool `_impl` methods (character + preset + RP workflow) |
 | `mcp/resources.rs` | Static + template resources (`airp://characters/…`) |
 | `mcp/prompts.rs` | Agent workflow prompts (`analyze_character_card`, etc.) |
 | `mcp/transport_http.rs` | Streamable HTTP MCP transport (`POST/GET /mcp/v1`) |
@@ -119,7 +119,9 @@ POST /v1/chat/completions
 - **ID newtypes** — validation happens at serde deserialization time; downstream code can trust IDs are valid.
 - **`estimate_tokens`** — ±30% approximation, not real tiktoken. Volume thresholds tolerate this imprecision.
 
-### MCP Tools (16 total)
+### MCP Tools (33 total)
+
+> Count is single-sourced from `AirpMcpServer::tool_count()` / `airp-core list-tools`. Table below is a representative subset; run `airp-core list-tools --format summary` for the full list.
 
 | Tool | Purpose |
 |---|---|

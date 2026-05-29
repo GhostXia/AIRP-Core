@@ -92,6 +92,23 @@ impl SettingsView {
     }
 }
 
+/// A2-5: constant-time byte comparison for the access key.
+///
+/// Plain `==` on `&str` short-circuits at the first differing byte, leaking
+/// a timing oracle that lets an attacker recover the key byte-by-byte. This
+/// compares all bytes with an XOR accumulator so the time depends only on
+/// length (key length is not a meaningful secret here).
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
 /// DX-2: 可选 API key 鉴权中间件。
 pub async fn auth_middleware(
     axum::extract::State(state): axum::extract::State<Arc<DaemonState>>,
@@ -109,7 +126,10 @@ pub async fn auth_middleware(
                 .get(header::AUTHORIZATION)
                 .and_then(|v| v.to_str().ok())
                 .and_then(|s| s.strip_prefix("Bearer "));
-            if provided.map(|k| k == key) != Some(true) {
+            let ok = provided
+                .map(|k| constant_time_eq(k.as_bytes(), key.as_bytes()))
+                .unwrap_or(false);
+            if !ok {
                 return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
             }
         }
@@ -245,7 +265,8 @@ async fn version_handler() -> axum::Json<VersionInfo> {
     axum::Json(VersionInfo {
         name: env!("CARGO_PKG_NAME"),
         version: env!("CARGO_PKG_VERSION"),
-        mcp_tools_count: 16,
+        // A2-2: derive from the tool router so this never drifts from reality.
+        mcp_tools_count: crate::mcp::AirpMcpServer::tool_count() as u32,
     })
 }
 
@@ -291,6 +312,14 @@ mod tests {
                 auth_middleware,
             ));
         Router::new().merge(v1_ping).with_state(state)
+    }
+
+    #[test]
+    fn test_a2_5_constant_time_eq() {
+        assert!(super::constant_time_eq(b"secret", b"secret"));
+        assert!(!super::constant_time_eq(b"secret", b"secreT"));
+        assert!(!super::constant_time_eq(b"secret", b"secre")); // length differs
+        assert!(super::constant_time_eq(b"", b""));
     }
 
     #[tokio::test]
@@ -741,7 +770,10 @@ mod tests {
         let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(v["name"], "airp-core");
         assert!(v["version"].as_str().unwrap().len() > 0);
-        assert_eq!(v["mcp_tools_count"], 16);
+        // A2-2: assert against the live router count, not a hardcoded literal.
+        let expected = crate::mcp::AirpMcpServer::tool_count() as u64;
+        assert_eq!(v["mcp_tools_count"].as_u64().unwrap(), expected);
+        assert!(expected >= 33, "tool count regressed: {}", expected);
     }
 
     // AUDIT-10: /version requires no auth even when access_api_key is set

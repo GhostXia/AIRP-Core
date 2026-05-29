@@ -126,6 +126,16 @@ impl AirpMcpServer {
         self.tool_router.list_all()
     }
 
+    /// A2-2: single source of truth for the registered MCP tool count.
+    ///
+    /// Builds the `#[tool_router]`-generated router statically (no data_root or
+    /// state needed) and counts entries. `/version` and docs-sync should read
+    /// this instead of hardcoding a literal — that literal had drifted to 16
+    /// while the real count was 33.
+    pub fn tool_count() -> usize {
+        Self::tool_router().list_all().len()
+    }
+
     /// CLI dispatcher: invoke a single MCP tool synchronously by name and
     /// return its JSON response as a `String`. Enables shell-driven agent
     /// automation without spawning the long-running stdio MCP server.

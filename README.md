@@ -41,7 +41,7 @@
 
 | 项 | 值 |
 |---|---|
-| 测试 | **423** passing（lib 418 + integration 5），1 ignored |
+| 测试 | **435** passing（lib 425 + integration 10），1 ignored |
 | Clippy `--lib --bins -- -D warnings` | **0** warning |
 | MCP 工具 | 33（含 5 user persona + 4 P0 读 + delete_character + 4 scene CRUD + 3 volume ops，全部带 ToolAnnotations） |
 | MCP 资源 | 3 静态 + 9 模板 |
@@ -123,7 +123,9 @@ airp-core diagnose --character-id alice   # 聚焦单个角色
 
 ## MCP 工具表
 
-全部 16 个工具带 MCP 标准 `ToolAnnotations` 元数据，harness 可据此自动判断 "静默调 vs 需用户确认"。
+全部 33 个工具带 MCP 标准 `ToolAnnotations` 元数据，harness 可据此自动判断 "静默调 vs 需用户确认"。
+
+> 工具数以 `airp-core list-tools` / `AirpMcpServer::tool_count()` 为单一真相源。下表为常用子集示例，完整列表跑 `airp-core list-tools --format summary`。
 
 | 工具 | 用途 | side_effect |
 |---|---|---|
@@ -199,7 +201,7 @@ airp-core diagnose --character-id alice   # 聚焦单个角色
 Claude Code / Cursor / 任何 MCP client
   → airp-core mcp (stdio) 或 POST /mcp/v1 (HTTP)
   → src/mcp/mod.rs: AirpMcpServer (#[tool_router])
-      ├─ tools.rs：16 个工具实现
+      ├─ tools.rs：33 个工具实现
       ├─ resources.rs：静态 + 模板资源（airp://characters/...）
       └─ prompts.rs：Agent 工作流提示词
 ```
@@ -237,7 +239,7 @@ POST /v1/chat/completions
 | 模块 | 职责 |
 |---|---|
 | `mcp/mod.rs` | MCP server：`AirpMcpServer`、`#[tool_router]`、资源 / 提示词 handler |
-| `mcp/tools.rs` | 16 个 `_impl` 实现 |
+| `mcp/tools.rs` | 33 个 `_impl` 实现 |
 | `mcp/resources.rs` | 静态 + 模板资源 |
 | `mcp/prompts.rs` | Agent 工作流提示词 |
 | `mcp/transport_http.rs` | Streamable HTTP MCP transport（`/mcp/v1`） |
@@ -311,7 +313,7 @@ data/
 
 ## 测试基础设施
 
-- **单元测试** — 309 用例覆盖配置三层合并 / 卷系统隔离 / FSM 状态转换 / Orchestrator 装配 / ChatLog 持久化 / 各 MCP 工具 / 场景多角色装配
+- **单元测试** — 435 用例覆盖配置三层合并 / 卷系统隔离 / FSM 状态转换 / Orchestrator 装配 / ChatLog 持久化 / 各 MCP 工具 / 场景多角色装配
 - **集成测试** — `tests/sse_wiremock.rs` + `tests/openai_compat.rs` 用 `wiremock` mock 上游 SSE，5 端到端场景
 - **Property test** — `fsm.rs` proptest 验证 chunk 边界独立性 / 任意 UTF-8 不 panic / 变量替换 chunk 独立 / `<卷评估/>` 自闭合标签 chunk 独立
 - **CI** — `.github/workflows/ci.yml` Ubuntu 跑 test + clippy + fmt（全部必过）+ `cargo-llvm-cov` 覆盖率
@@ -353,7 +355,7 @@ docker-compose up --build -d
 - M_CF：角色卡文件夹分层
 - M_PR：预设目录化 + SillyTavern 正则脚本（PR-1~10）
 - M_MS：多角色场景
-- M_MCP：MCP 协议全量集成（16 工具 + 9 资源 + 5 提示词 + stdio + HTTP）
+- M_MCP：MCP 协议全量集成（33 工具 + 资源 + 提示词 + stdio + HTTP）
 - M_DX：API key 鉴权 + Docker 部署
 - M_LS：实时状态系统 + schema 推断
 - M_CA：Agent-driven 分析提示词

@@ -692,6 +692,14 @@ pub fn build_sse_stream(
 // ── finalize ──────────────────────────────────────────────────────────────────
 
 async fn run_finalize(ctx: FinalizerCtx, raw_acc: String, cleaned_acc: String) {
+    // A2-1: credit estimated LLM output tokens toward the per-(user)-root daily
+    // quota. `ctx.data_root` is the effective root (DX-1 per-user isolation), so
+    // record_tokens writes the same quota.json that check_and_increment gated on.
+    // raw_acc = full raw generation (pre-filter), the truest proxy for billed
+    // output. Best-effort: record_tokens never blocks a completed response.
+    let out_tokens = crate::volume_store::estimate_tokens(&raw_acc);
+    crate::quota::record_tokens(&ctx.data_root, out_tokens.min(u32::MAX as usize) as u32);
+
     // (1) Persist assistant message to ChatLog
     //     M_LS-1: strip <state>…</state> before persisting; side-persist state/live.json.
     if let Some(ref cid) = ctx.character_id {
