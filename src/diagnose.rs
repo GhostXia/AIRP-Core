@@ -507,7 +507,7 @@ mod tests {
     #[test]
     fn diagnose_reports_presets_and_scenes() {
         let tmp = tempdir().unwrap();
-        let p = tmp.path().join("presets").join("LENI");
+        let p = tmp.path().join("presets").join("test_preset");
         std::fs::create_dir_all(p.join("regex")).unwrap();
         std::fs::write(p.join("preset.json"), "{}").unwrap();
         std::fs::write(p.join("regex").join("a.json"), "{}").unwrap();
@@ -524,7 +524,7 @@ mod tests {
         let r = run_diagnose(tmp.path(), None, None);
         let presets = r["presets"].as_array().unwrap();
         assert_eq!(presets.len(), 1);
-        assert_eq!(presets[0]["id"], "LENI");
+        assert_eq!(presets[0]["id"], "test_preset");
         assert_eq!(presets[0]["regex_scripts"], 2);
         let scenes = r["scenes"].as_array().unwrap();
         assert_eq!(scenes.len(), 1);

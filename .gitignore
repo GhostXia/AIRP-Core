@@ -48,3 +48,6 @@ REFACTOR_PLAN.md
 
 # Per-machine Claude Code settings (not for public repo)
 .claude/settings.local.json
+
+# Internal test transcript (references real card identities — local only)
+INTEGRATION_TEST_PLAN.md

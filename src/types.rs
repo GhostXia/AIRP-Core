@@ -298,10 +298,10 @@ mod tests {
     fn preset_id_basic() {
         assert!(PresetId::new("default").is_ok());
         assert!(PresetId::new("../etc").is_err());
-        let p = PresetId::new("LENI").unwrap();
+        let p = PresetId::new("test_preset").unwrap();
         let json = serde_json::to_string(&p).unwrap();
         let back: PresetId = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.as_str(), "LENI");
+        assert_eq!(back.as_str(), "test_preset");
     }
 
     #[test]

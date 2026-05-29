@@ -146,7 +146,7 @@ impl AirpMcpServer {
                 .map_err(|e| ErrorData::invalid_params(format!("非法 preset_id: {}", e), None))?;
             match sub {
                 "raw" => {
-                    // DS-4: supports ?offset=N&limit=M for large files (e.g. LENI ~455 KB)
+                    // DS-4: supports ?offset=N&limit=M for large files (e.g. test_preset ~455 KB)
                     let path = crate::data_dir::preset_json_path(&self.data_root, pid);
                     if !path.exists() {
                         return Err(ErrorData::invalid_params(

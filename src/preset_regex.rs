@@ -171,11 +171,11 @@ mod tests {
     fn test_pr4_load_single_object() {
         let tmp = tempdir().unwrap();
         let root = tmp.path();
-        let regex_dir = root.join("presets").join("LENI").join("regex");
+        let regex_dir = root.join("presets").join("test_preset").join("regex");
         fs::create_dir_all(&regex_dir).unwrap();
         fs::write(regex_dir.join("a.json"), SCRIPT_HIDE_THOUGHT).unwrap();
 
-        let scripts = load_preset_regex_scripts(root, "LENI").unwrap();
+        let scripts = load_preset_regex_scripts(root, "test_preset").unwrap();
         assert_eq!(scripts.len(), 1);
         assert_eq!(scripts[0].script_name, "Hide Thoughts");
         assert!(!scripts[0].disabled);
@@ -185,12 +185,12 @@ mod tests {
     fn test_pr4_load_array_format() {
         let tmp = tempdir().unwrap();
         let root = tmp.path();
-        let regex_dir = root.join("presets").join("LENI").join("regex");
+        let regex_dir = root.join("presets").join("test_preset").join("regex");
         fs::create_dir_all(&regex_dir).unwrap();
         let arr = format!("[{},{}]", SCRIPT_HIDE_THOUGHT, SCRIPT_DISABLED);
         fs::write(regex_dir.join("bundle.json"), arr).unwrap();
 
-        let scripts = load_preset_regex_scripts(root, "LENI").unwrap();
+        let scripts = load_preset_regex_scripts(root, "test_preset").unwrap();
         assert_eq!(scripts.len(), 2);
     }
 
@@ -206,12 +206,12 @@ mod tests {
     fn test_pr4_load_invalid_json_skipped() {
         let tmp = tempdir().unwrap();
         let root = tmp.path();
-        let regex_dir = root.join("presets").join("LENI").join("regex");
+        let regex_dir = root.join("presets").join("test_preset").join("regex");
         fs::create_dir_all(&regex_dir).unwrap();
         fs::write(regex_dir.join("good.json"), SCRIPT_HIDE_THOUGHT).unwrap();
         fs::write(regex_dir.join("bad.json"), "{ malformed").unwrap();
 
-        let scripts = load_preset_regex_scripts(root, "LENI").unwrap();
+        let scripts = load_preset_regex_scripts(root, "test_preset").unwrap();
         assert_eq!(scripts.len(), 1, "坏 JSON 应被跳过，好脚本仍加载");
     }
 
@@ -235,12 +235,12 @@ mod tests {
         // STR-01 复用：脚本 JSON 含 BOM 应被剥除
         let tmp = tempdir().unwrap();
         let root = tmp.path();
-        let regex_dir = root.join("presets").join("LENI").join("regex");
+        let regex_dir = root.join("presets").join("test_preset").join("regex");
         fs::create_dir_all(&regex_dir).unwrap();
         let with_bom = format!("\u{FEFF}{}", SCRIPT_HIDE_THOUGHT);
         fs::write(regex_dir.join("a.json"), with_bom).unwrap();
 
-        let scripts = load_preset_regex_scripts(root, "LENI").unwrap();
+        let scripts = load_preset_regex_scripts(root, "test_preset").unwrap();
         assert_eq!(scripts.len(), 1);
     }
 }

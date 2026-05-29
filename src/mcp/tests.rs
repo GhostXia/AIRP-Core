@@ -9,11 +9,11 @@ fn test_card_json() -> String {
         "spec": "chara_card_v2",
         "spec_version": "2.0",
         "data": {
-            "name": "凌欺霜",
+            "name": "Alice",
             "description": "天剑阁首席",
             "personality": "冷静、决断",
             "scenario": "江湖",
-            "first_mes": "我便是凌欺霜。",
+            "first_mes": "我便是Alice。",
             "alternate_greetings": ["剑光一闪。", "茶摊偶遇。"],
             "character_book": {
                 "entries": {
@@ -70,19 +70,19 @@ fn test_mcp2_import_card_json() {
     let tmp = tempdir().unwrap();
     let s = AirpMcpServer::new(tmp.path().to_path_buf());
     let req = ImportCardRequest {
-        character_id: "凌欺霜".to_string(),
+        character_id: "Alice".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
         idempotency_key: None,
     };
     let out = s.import_card(Parameters(req)).unwrap();
     let v: serde_json::Value = serde_json::from_str(&out).unwrap();
-    assert_eq!(v["character_id"], "凌欺霜");
+    assert_eq!(v["character_id"], "Alice");
     assert_eq!(v["card_format"], "json");
     assert_eq!(v["greetings_count"], 3);
     assert_eq!(v["lorebook_entries"], 1);
 
-    let cdir = tmp.path().join("characters").join("凌欺霜");
+    let cdir = tmp.path().join("characters").join("Alice");
     assert!(cdir.join("card").join("raw.json").exists());
     assert!(cdir.join("card").join("greetings").join("00.md").exists());
     assert!(cdir.join("world").join("lorebook.json").exists());
@@ -106,7 +106,7 @@ fn test_mcp2_apply_lorebook_triggered() {
     let tmp = tempdir().unwrap();
     let s = AirpMcpServer::new(tmp.path().to_path_buf());
     s.import_card(Parameters(ImportCardRequest {
-        character_id: "凌欺霜".to_string(),
+        character_id: "Alice".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
         idempotency_key: None,
@@ -114,7 +114,7 @@ fn test_mcp2_apply_lorebook_triggered() {
     .unwrap();
     let out = s
         .apply_lorebook(Parameters(ApplyLorebookRequest {
-            character_id: "凌欺霜".to_string(),
+            character_id: "Alice".to_string(),
             text: "走到天剑阁外的茶摊。".to_string(),
         }))
         .unwrap();
@@ -126,7 +126,7 @@ fn test_mcp2_apply_lorebook_no_match() {
     let tmp = tempdir().unwrap();
     let s = AirpMcpServer::new(tmp.path().to_path_buf());
     s.import_card(Parameters(ImportCardRequest {
-        character_id: "凌欺霜".to_string(),
+        character_id: "Alice".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
         idempotency_key: None,
@@ -134,7 +134,7 @@ fn test_mcp2_apply_lorebook_no_match() {
     .unwrap();
     let out = s
         .apply_lorebook(Parameters(ApplyLorebookRequest {
-            character_id: "凌欺霜".to_string(),
+            character_id: "Alice".to_string(),
             text: "无关文本".to_string(),
         }))
         .unwrap();
@@ -160,7 +160,7 @@ fn test_mcp2_start_session_returns_prompt_and_greetings() {
     let tmp = tempdir().unwrap();
     let s = AirpMcpServer::new(tmp.path().to_path_buf());
     s.import_card(Parameters(ImportCardRequest {
-        character_id: "凌欺霜".to_string(),
+        character_id: "Alice".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
         idempotency_key: None,
@@ -169,7 +169,7 @@ fn test_mcp2_start_session_returns_prompt_and_greetings() {
 
     let out = s
         .start_session(Parameters(StartSessionRequest {
-            character_id: "凌欺霜".to_string(),
+            character_id: "Alice".to_string(),
             session_id: None,
             preset_id: None,
             user_name: "玩家".to_string(),
@@ -177,14 +177,10 @@ fn test_mcp2_start_session_returns_prompt_and_greetings() {
         }))
         .unwrap();
     let v: serde_json::Value = serde_json::from_str(&out).unwrap();
-    assert_eq!(v["character_id"], "凌欺霜");
+    assert_eq!(v["character_id"], "Alice");
     assert_eq!(v["greetings_count"], 3);
     let sp = v["system_prompt"].as_str().unwrap();
-    assert!(
-        sp.contains("凌欺霜") || sp.contains("天剑阁"),
-        "sp = {}",
-        sp
-    );
+    assert!(sp.contains("Alice") || sp.contains("天剑阁"), "sp = {}", sp);
     assert!(v["session_dir"].as_str().unwrap().contains("memory"));
 }
 
@@ -195,7 +191,7 @@ fn test_mcp3_dispatch_characters_list() {
     let tmp = tempdir().unwrap();
     let s = AirpMcpServer::new(tmp.path().to_path_buf());
     s.import_card(Parameters(ImportCardRequest {
-        character_id: "凌欺霜".to_string(),
+        character_id: "bob".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
         idempotency_key: None,
@@ -216,7 +212,7 @@ fn test_mcp3_dispatch_characters_list() {
         _ => panic!("expected text"),
     };
     let arr: Vec<String> = serde_json::from_str(&text).unwrap();
-    assert!(arr.contains(&"凌欺霜".to_string()));
+    assert!(arr.contains(&"bob".to_string()));
     assert!(arr.contains(&"alice".to_string()));
 }
 
@@ -225,21 +221,19 @@ fn test_mcp3_dispatch_card() {
     let tmp = tempdir().unwrap();
     let s = AirpMcpServer::new(tmp.path().to_path_buf());
     s.import_card(Parameters(ImportCardRequest {
-        character_id: "凌欺霜".to_string(),
+        character_id: "Alice".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
         idempotency_key: None,
     }))
     .unwrap();
 
-    let contents = s
-        .dispatch_resource("airp://characters/凌欺霜/card")
-        .unwrap();
+    let contents = s.dispatch_resource("airp://characters/Alice/card").unwrap();
     let text = match &contents[0] {
         ResourceContents::TextResourceContents { text, .. } => text.clone(),
         _ => panic!(),
     };
-    assert!(text.contains("凌欺霜"));
+    assert!(text.contains("Alice"));
     assert!(text.contains("天剑阁首席"));
 }
 
@@ -248,7 +242,7 @@ fn test_mcp3_dispatch_lorebook() {
     let tmp = tempdir().unwrap();
     let s = AirpMcpServer::new(tmp.path().to_path_buf());
     s.import_card(Parameters(ImportCardRequest {
-        character_id: "凌欺霜".to_string(),
+        character_id: "Alice".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
         idempotency_key: None,
@@ -256,7 +250,7 @@ fn test_mcp3_dispatch_lorebook() {
     .unwrap();
 
     let contents = s
-        .dispatch_resource("airp://characters/凌欺霜/world/lorebook")
+        .dispatch_resource("airp://characters/Alice/world/lorebook")
         .unwrap();
     let text = match &contents[0] {
         ResourceContents::TextResourceContents { text, .. } => text.clone(),
@@ -310,18 +304,14 @@ fn test_mcp4_assemble_system_prompt_works() {
     let tmp = tempdir().unwrap();
     let s = AirpMcpServer::new(tmp.path().to_path_buf());
     s.import_card(Parameters(ImportCardRequest {
-        character_id: "凌欺霜".to_string(),
+        character_id: "Alice".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
         idempotency_key: None,
     }))
     .unwrap();
-    let sp = s.assemble_system_prompt("凌欺霜", None, "玩家").unwrap();
-    assert!(
-        sp.contains("凌欺霜") || sp.contains("天剑阁"),
-        "sp = {}",
-        sp
-    );
+    let sp = s.assemble_system_prompt("Alice", None, "玩家").unwrap();
+    assert!(sp.contains("Alice") || sp.contains("天剑阁"), "sp = {}", sp);
 }
 
 #[test]
@@ -586,12 +576,12 @@ fn test_character_artifacts_after_write() {
 
 #[test]
 fn test_mca_analyze_character_card_prompt_contains_steps() {
-    let p = analyze_character_card_prompt("凌欺霜");
-    assert!(p.contains("airp://characters/凌欺霜/card"));
+    let p = analyze_character_card_prompt("Alice");
+    assert!(p.contains("airp://characters/Alice/card"));
     assert!(p.contains("analysis/profile.md"));
     assert!(p.contains("analysis/tier.json"));
     assert!(p.contains("tier.json 格式"));
-    assert!(p.contains("airp://characters/凌欺霜/artifacts"));
+    assert!(p.contains("airp://characters/Alice/artifacts"));
 }
 
 #[test]

@@ -63,7 +63,7 @@ Import a SillyTavern V2 character card (JSON or PNG).
 **Input:**
 ```json
 {
-  "character_id": "凌欺霜",
+  "character_id": "Alice",
   "card_json": "{ ... TavernV2 JSON string ... }",
   "card_png_base64": null
 }
@@ -73,7 +73,7 @@ Exactly one of `card_json` / `card_png_base64` must be provided.
 **Output:**
 ```json
 {
-  "character_id": "凌欺霜",
+  "character_id": "Alice",
   "card_format": "json",
   "greetings_count": 3,
   "lorebook_entries": 12
@@ -107,7 +107,7 @@ Scan text for lorebook keyword matches; return triggered entries.
 
 **Input:**
 ```json
-{ "character_id": "凌欺霜", "text": "走到天剑阁外的茶摊。" }
+{ "character_id": "Alice", "text": "走到天剑阁外的茶摊。" }
 ```
 
 **Output:** Concatenated lorebook entry content strings (empty string if no match).
@@ -120,7 +120,7 @@ Build system prompt + load greetings for a new RP session.
 **Input:**
 ```json
 {
-  "character_id": "凌欺霜",
+  "character_id": "Alice",
   "session_id": null,
   "preset_id": "my_preset",
   "user_name": "玩家"
@@ -130,12 +130,12 @@ Build system prompt + load greetings for a new RP session.
 **Output:**
 ```json
 {
-  "character_id": "凌欺霜",
+  "character_id": "Alice",
   "session_id": null,
-  "session_dir": "data/characters/凌欺霜/memory",
+  "session_dir": "data/characters/Alice/memory",
   "system_prompt": "...",
   "greetings_count": 3,
-  "greetings": ["我便是凌欺霜。", "剑光一闪。", "茶摊偶遇。"]
+  "greetings": ["我便是Alice。", "剑光一闪。", "茶摊偶遇。"]
 }
 ```
 
@@ -148,14 +148,14 @@ Return the N most recent messages from a character's chat log.
 
 **Input:**
 ```json
-{ "character_id": "凌欺霜", "n": 10, "session_id": null }
+{ "character_id": "Alice", "n": 10, "session_id": null }
 ```
 `n` defaults to 10. `session_id` is a reserved field (unused in current implementation).
 
 **Output:**
 ```json
 {
-  "character_id": "凌欺霜",
+  "character_id": "Alice",
   "total_messages": 42,
   "returned": 10,
   "messages": [
@@ -174,13 +174,13 @@ Append one message to a character's chat log (O(1) JSONL append).
 
 **Input:**
 ```json
-{ "character_id": "凌欺霜", "role": "user", "content": "我要挑战你。", "session_id": null }
+{ "character_id": "Alice", "role": "user", "content": "我要挑战你。", "session_id": null }
 ```
 `role` must be `"user"`, `"assistant"`, or `"system"`. `session_id` is reserved.
 
 **Output:**
 ```json
-{ "character_id": "凌欺霜", "role": "user", "total_messages": 43 }
+{ "character_id": "Alice", "role": "user", "total_messages": 43 }
 ```
 
 **Use case:** After each LLM turn, persist both the user message and the assistant reply to `history/chat_log.jsonl`.
@@ -193,7 +193,7 @@ Write or merge fields into `characters/{id}/state/live.json`.
 **Input:**
 ```json
 {
-  "character_id": "凌欺霜",
+  "character_id": "Alice",
   "state_json": "{\"hp\": 80, \"location\": \"天剑阁\"}",
   "overwrite": false
 }
@@ -205,7 +205,7 @@ Write or merge fields into `characters/{id}/state/live.json`.
 **Output:**
 ```json
 {
-  "character_id": "凌欺霜",
+  "character_id": "Alice",
   "overwrite": false,
   "fields_updated": 2,
   "state": { "hp": 80, "mp": 50, "location": "天剑阁" }
@@ -277,7 +277,7 @@ Write an Agent-generated analysis artifact under `characters/{character_id}/`.
 **Input:**
 ```json
 {
-  "character_id": "凌欺霜",
+  "character_id": "Alice",
   "artifact_path": "analysis/profile.md",
   "content": "# Profile\n..."
 }
@@ -288,7 +288,7 @@ Write an Agent-generated analysis artifact under `characters/{character_id}/`.
 
 **Output:**
 ```json
-{ "character_id": "凌欺霜", "artifact_path": "analysis/profile.md", "bytes_written": 100 }
+{ "character_id": "Alice", "artifact_path": "analysis/profile.md", "bytes_written": 100 }
 ```
 
 ---
@@ -301,7 +301,7 @@ Use after an incorrect `append_message` or to redo the last LLM turn.
 **Input:**
 ```json
 {
-  "character_id": "凌欺霜",
+  "character_id": "Alice",
   "n": 1
 }
 ```
@@ -312,7 +312,7 @@ Use after an incorrect `append_message` or to redo the last LLM turn.
 **Output:**
 ```json
 {
-  "character_id": "凌欺霜",
+  "character_id": "Alice",
   "requested": 1,
   "removed": 1,
   "total_messages": 4
@@ -328,13 +328,13 @@ Does NOT include the legacy default session stored directly in `memory/`.
 
 **Input:**
 ```json
-{ "character_id": "凌欺霜" }
+{ "character_id": "Alice" }
 ```
 
 **Output:**
 ```json
 {
-  "character_id": "凌欺霜",
+  "character_id": "Alice",
   "sessions": ["20240101_120000_abc123", "20240102_093015_def456"],
   "count": 2
 }
@@ -352,7 +352,7 @@ Each snapshot is appended by `update_state`. Useful for reviewing how HP/MP/loca
 **Input:**
 ```json
 {
-  "character_id": "凌欺霜",
+  "character_id": "Alice",
   "n": 10
 }
 ```
@@ -363,7 +363,7 @@ Each snapshot is appended by `update_state`. Useful for reviewing how HP/MP/loca
 **Output:**
 ```json
 {
-  "character_id": "凌欺霜",
+  "character_id": "Alice",
   "entries": [
     { "ts": "2024-01-01T12:00:00Z", "state": { "hp": 60, "mp": 40, "location": "tavern" } },
     { "ts": "2024-01-01T11:55:00Z", "state": { "hp": 80, "mp": 45, "location": "road" } }

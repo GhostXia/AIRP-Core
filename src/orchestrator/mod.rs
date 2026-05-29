@@ -556,7 +556,7 @@ mod tests {
         let bob_card = r#"{"spec":"chara_card_v2","data":{"name":"鲍勃","personality":"谨慎","description":"茶馆掌柜"}}"#;
 
         let cards = [("alice", Some(alice_card)), ("bob", Some(bob_card))];
-        let prompt = super::build_multi_char_system_prompt(&scene, &cards, "", "旅人");
+        let prompt = super::build_multi_char_system_prompt(&scene, &cards, "", "user");
 
         assert!(prompt.contains("[场景设定]"), "should have scene section");
         assert!(prompt.contains("茶馆初春"), "should have scene description");
@@ -575,7 +575,7 @@ mod tests {
             prompt.contains("[格式规则]"),
             "should have format hint section"
         );
-        assert!(prompt.contains("旅人"), "should mention user name");
+        assert!(prompt.contains("user"), "should mention user name");
     }
 
     #[test]
@@ -622,7 +622,7 @@ mod tests {
         };
 
         let lore = "这里是传说中的禁地";
-        let prompt = super::build_multi_char_system_prompt(&scene, &[], lore, "旅人");
+        let prompt = super::build_multi_char_system_prompt(&scene, &[], lore, "user");
         assert!(prompt.contains("[世界书信息]"), "should have lore section");
         assert!(prompt.contains("禁地"), "should include lore content");
     }

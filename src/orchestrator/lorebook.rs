@@ -215,7 +215,7 @@ mod tests {
         // 一段 4KB 的对话文本（模拟实际 user message + history 注入后的扫描目标）
         let mut text = String::with_capacity(4096);
         for _ in 0..200 {
-            text.push_str("旅人沿着山道走了很久，看到远方的灯火，心中升起一丝期待。");
+            text.push_str("user沿着山道走了很久，看到远方的灯火，心中升起一丝期待。");
         }
         text.push_str(" 人物42 与 alias88_b 出现 ");
 

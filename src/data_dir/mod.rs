@@ -442,9 +442,9 @@ mod tests {
     fn test_pr1_preset_dir_creates() {
         let tmp = tempdir().unwrap();
         let root = tmp.path();
-        let dir = preset_dir(root, "LENI").unwrap();
+        let dir = preset_dir(root, "test_preset").unwrap();
         assert!(dir.exists());
-        assert!(dir.ends_with("LENI"));
+        assert!(dir.ends_with("test_preset"));
         assert!(dir.parent().unwrap().ends_with("presets"));
     }
 
@@ -452,7 +452,7 @@ mod tests {
     fn test_pr1_preset_json_path() {
         let tmp = tempdir().unwrap();
         let root = tmp.path();
-        let p = preset_json_path(root, "LENI");
+        let p = preset_json_path(root, "test_preset");
         assert!(p.ends_with("preset.json"));
         assert!(!p.exists());
     }
@@ -461,7 +461,7 @@ mod tests {
     fn test_pr1_preset_regex_dir() {
         let tmp = tempdir().unwrap();
         let root = tmp.path();
-        let dir = preset_regex_dir(root, "LENI").unwrap();
+        let dir = preset_regex_dir(root, "test_preset").unwrap();
         assert!(dir.ends_with("regex"));
         assert!(dir.exists());
     }
@@ -472,16 +472,19 @@ mod tests {
         let root = tmp.path();
         let presets = root.join("presets");
         fs::create_dir_all(&presets).unwrap();
-        let flat = presets.join("LENI.json");
-        fs::write(&flat, r#"{"name":"LENI"}"#).unwrap();
+        let flat = presets.join("test_preset.json");
+        fs::write(&flat, r#"{"name":"test_preset"}"#).unwrap();
 
         migrate_legacy_presets(root).unwrap();
 
-        let new_path = presets.join("LENI").join("preset.json");
-        assert!(new_path.exists(), "LENI.json 应迁移到 LENI/preset.json");
-        assert!(!flat.exists(), "旧扁平 LENI.json 应被移走");
+        let new_path = presets.join("test_preset").join("preset.json");
+        assert!(
+            new_path.exists(),
+            "test_preset.json 应迁移到 test_preset/preset.json"
+        );
+        assert!(!flat.exists(), "旧扁平 test_preset.json 应被移走");
         let content = fs::read_to_string(&new_path).unwrap();
-        assert_eq!(content, r#"{"name":"LENI"}"#);
+        assert_eq!(content, r#"{"name":"test_preset"}"#);
     }
 
     #[test]
@@ -490,12 +493,15 @@ mod tests {
         let root = tmp.path();
         let presets = root.join("presets");
         fs::create_dir_all(&presets).unwrap();
-        fs::write(presets.join("LENI.md"), "# LENI MD").unwrap();
+        fs::write(presets.join("test_preset.md"), "# test_preset MD").unwrap();
 
         migrate_legacy_presets(root).unwrap();
 
-        let new_path = presets.join("LENI").join("preset.md");
-        assert!(new_path.exists(), "LENI.md 应迁移到 LENI/preset.md");
+        let new_path = presets.join("test_preset").join("preset.md");
+        assert!(
+            new_path.exists(),
+            "test_preset.md 应迁移到 test_preset/preset.md"
+        );
     }
 
     #[test]
@@ -519,16 +525,16 @@ mod tests {
         let tmp = tempdir().unwrap();
         let root = tmp.path();
         let presets = root.join("presets");
-        let new_dir = presets.join("LENI");
+        let new_dir = presets.join("test_preset");
         fs::create_dir_all(&new_dir).unwrap();
         fs::write(new_dir.join("preset.json"), "USER_EDITED").unwrap();
-        fs::write(presets.join("LENI.json"), "STALE").unwrap();
+        fs::write(presets.join("test_preset.json"), "STALE").unwrap();
 
         migrate_legacy_presets(root).unwrap();
 
         let content = fs::read_to_string(new_dir.join("preset.json")).unwrap();
         assert_eq!(content, "USER_EDITED");
-        assert!(presets.join("LENI.json").exists());
+        assert!(presets.join("test_preset.json").exists());
     }
 
     #[test]
