@@ -31,6 +31,12 @@ pub(super) fn analyze_character_card_prompt(character_id: &str) -> String {
     format!(
         "你是角色卡分析 Agent。请按以下步骤分析角色 `{cid}`：\n\
          \n\
+         **步骤 0：歧义自检（必做，先于一切读取）**\n\
+         在分析前，先确认 `{cid}` 确实是用户**本次明确指定**要拆解的对象。若用户描述模糊（如\"拆解我的角色卡\"未指明是哪一个），**必须停下来询问用户**，不得擅自假设：\n\
+         - 要拆的是**已存入 airp 的角色**（`airp://characters` 列表中的条目）？还是\n\
+         - 用户**本次新提供、尚未存入**的文件（如工作目录下的 .json / .png）？\n\
+         若属后者，应先 `import_card` 导入再分析，或直接读取用户提供的文件 —— **切勿**把 `airp://characters` 列表里的历史条目无差别全部拆解。确认无误后再进入步骤 1。\n\
+         \n\
          **步骤 1：读取角色卡**\n\
          读取资源 `airp://characters/{cid}/card`，获取完整 TavernV2 JSON。\n\
          \n\
@@ -87,6 +93,12 @@ pub(super) fn analyze_character_card_prompt(character_id: &str) -> String {
 pub(super) fn analyze_preset_prompt(preset_id: &str) -> String {
     format!(
         "你是预设分析 Agent。请按以下步骤分析预设 `{pid}`：\n\
+         \n\
+         **步骤 0：歧义自检（必做，先于一切读取）**\n\
+         在分析前，先确认 `{pid}` 确实是用户**本次明确指定**要拆解的对象。若用户描述模糊（如\"拆解我的预设\"未指明是哪一个），**必须停下来询问用户**，不得擅自假设：\n\
+         - 要拆的是**已存入 airp 的预设**（`airp://presets` 列表中的条目）？还是\n\
+         - 用户**本次新提供、尚未存入**的文件（如工作目录下的 .json）？\n\
+         若属后者，应先 `import_preset` 导入再分析，或直接读取用户提供的文件 —— **切勿**把 `airp://presets` 列表里的历史条目无差别全部拆解。确认无误后再进入步骤 1。\n\
          \n\
          **步骤 1：读取预设**\n\
          读取资源 `airp://presets/{pid}/raw`，获取完整 SillyTavern Preset JSON 原文。\n\
