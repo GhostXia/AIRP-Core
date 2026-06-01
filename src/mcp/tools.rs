@@ -739,6 +739,18 @@ impl AirpMcpServer {
             ErrorData::invalid_params(format!("preset 内容不是合法 JSON: {}", e), None)
         })?;
 
+        // 形状校验：若内容明显是角色卡（spec=chara_card_* 或 v1 平铺），拒绝导入为预设，
+        // 提示改用 import_card。防 agent 误判把卡当预设导入。
+        if matches!(
+            crate::orchestrator::card::detect_json_shape(&preset_content),
+            crate::orchestrator::card::JsonShape::Card
+        ) {
+            return Err(ErrorData::invalid_params(
+                "内容像 SillyTavern 角色卡（spec=chara_card_* 或 v1 平铺字段），不是预设。请改用 import_card 导入。".to_string(),
+                None,
+            ));
+        }
+
         let dest_path = crate::data_dir::preset_json_path(&self.data_root, &req.preset_id);
         if let Some(parent) = dest_path.parent() {
             std::fs::create_dir_all(parent)

@@ -251,34 +251,50 @@ pub(crate) fn import_card_to_disk(
 ) -> Result<(String, String), AirpError> {
     let char_dir = data_dir::character_dir(data_root, character_id)?;
 
-    let (card_format, json_str) = if let Some(json) = card_json {
-        let clean = data_dir::strip_utf8_bom(&json).to_owned();
-        let _ = serde_json::from_str::<serde_json::Value>(&clean)
-            .map_err(|e| AirpError::BadRequest(format!("card_json 不是有效 JSON: {}", e)))?;
-        fs::write(char_dir.join("card.json"), &clean)?;
-        ("json".to_string(), clean)
-    } else if let Some(png_b64) = card_png_base64 {
-        use base64::Engine;
-        let png_bytes = base64::engine::general_purpose::STANDARD
-            .decode(&png_b64)
-            .map_err(|e| AirpError::BadRequest(format!("base64 解码失败: {}", e)))?;
-        fs::write(char_dir.join("card.png"), &png_bytes)?;
-        let card_dir = data_dir::char_card_dir(data_root, character_id)?;
-        fs::write(card_dir.join("card.png"), &png_bytes)?;
-        let json = crate::png_parser::parse_png_character_card(char_dir.join("card.png"))?;
-        ("png".to_string(), json)
-    } else {
+    // 阶段 1：提取 + 校验 JSON（PNG 先 decode 到内存，暂不落盘）。
+    // 写盘推迟到形状校验之后，避免被拒的预设残留脏文件。
+    let (card_format, json_str, png_bytes): (String, String, Option<Vec<u8>>) =
+        if let Some(json) = card_json {
+            let clean = data_dir::strip_utf8_bom(&json).to_owned();
+            let _ = serde_json::from_str::<serde_json::Value>(&clean)
+                .map_err(|e| AirpError::BadRequest(format!("card_json 不是有效 JSON: {}", e)))?;
+            ("json".to_string(), clean, None)
+        } else if let Some(png_b64) = card_png_base64 {
+            use base64::Engine;
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(&png_b64)
+                .map_err(|e| AirpError::BadRequest(format!("base64 解码失败: {}", e)))?;
+            // 从内存字节解析 tEXt/ccv3；解析失败即报错，不落盘。
+            let json = crate::png_parser::parse_png_character_card_bytes(&bytes)?;
+            ("png".to_string(), json, Some(bytes))
+        } else {
+            return Err(AirpError::BadRequest(
+                "必须提供 card_json 或 card_png_base64 之一".to_string(),
+            ));
+        };
+
+    // 阶段 2：形状校验。若内容明显是 SillyTavern 预设（顶层 prompts[] + 模型参数），
+    // 拒绝导入为角色卡，提示改用 import_preset。此处尚未写盘，拒绝不留脏文件。
+    if matches!(
+        crate::orchestrator::card::detect_json_shape(&json_str),
+        crate::orchestrator::card::JsonShape::Preset
+    ) {
         return Err(AirpError::BadRequest(
-            "必须提供 card_json 或 card_png_base64 之一".to_string(),
+            "内容像 SillyTavern 预设（顶层 prompts[] + 模型参数），不是角色卡。请改用 import_preset 导入。".to_string(),
         ));
-    };
+    }
 
     // v1 平铺卡归一化为 v2 schema（data 嵌套）。v2/v3 卡原样返回。
     // 不归一化则下游 TavernCardV2 解析失败，greetings/lorebook 全丢。
     let json_str = crate::orchestrator::card::normalize_v1_to_v2(&json_str);
-    // 归一化改写了内容时，回写 card.json 与 raw.json 保持一致。
-    if card_format == "json" {
-        let _ = fs::write(char_dir.join("card.json"), &json_str);
+
+    // 阶段 3：落盘（仅在校验通过后）。
+    if let Some(bytes) = png_bytes {
+        fs::write(char_dir.join("card.png"), &bytes)?;
+        let card_dir = data_dir::char_card_dir(data_root, character_id)?;
+        fs::write(card_dir.join("card.png"), &bytes)?;
+    } else {
+        fs::write(char_dir.join("card.json"), &json_str)?;
     }
 
     // CF-7: 解包资产（非阻塞；失败仅 warn）

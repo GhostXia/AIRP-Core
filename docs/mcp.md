@@ -58,17 +58,28 @@ Health check. Returns version string and data_root path.
 ---
 
 ### `import_card`
-Import a SillyTavern V2 character card (JSON or PNG).
+Import a SillyTavern character card (JSON or PNG).
 
 **Input:**
 ```json
 {
   "character_id": "Alice",
   "card_json": "{ ... TavernV2 JSON string ... }",
-  "card_png_base64": null
+  "card_png_base64": null,
+  "card_path": null
 }
 ```
-Exactly one of `card_json` / `card_png_base64` must be provided.
+Exactly one of `card_json` / `card_png_base64` / `card_path` must be provided.
+Prefer `card_path` (a local file path) for large files: AIRP reads from disk
+directly, avoiding a large-file round-trip through LLM context. PNG is
+auto-detected by magic bytes; anything else is treated as JSON text.
+
+**Card format handling:** PNG `tEXt` / `zTXt` / `iTXt` (incl. zlib-compressed)
+chunks are supported; `ccv3` (V3) takes priority over `chara` (V2 fallback
+view). v1 flat cards are normalized to v2 schema automatically.
+
+**Shape guard:** JSON whose top level looks like a SillyTavern preset
+(`prompts[]` + model params) is rejected with guidance to use `import_preset`.
 
 **Output:**
 ```json
@@ -91,9 +102,17 @@ Import a SillyTavern Preset JSON file.
 ```json
 {
   "preset_id": "my_preset",
-  "preset_json": "{ ... SillyTavern Preset JSON ... }"
+  "preset_json": "{ ... SillyTavern Preset JSON ... }",
+  "preset_path": null
 }
 ```
+Exactly one of `preset_json` / `preset_path` must be provided. Prefer
+`preset_path` (a local file path) for large files — AIRP reads from disk
+directly instead of taking content through LLM context.
+
+**Shape guard:** JSON whose top level looks like a character card
+(`spec=chara_card_*` + `data{}`, or v1 flat `name`+`first_mes`) is rejected
+with guidance to use `import_card`.
 
 **Output:**
 ```json
