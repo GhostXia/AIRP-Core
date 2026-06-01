@@ -376,6 +376,7 @@ docker-compose up --build -d
 - **Windows-GNU 本地覆盖率不可跑** — `profiler_builtins` runtime 缺失；`cargo llvm-cov` 仅 Linux CI 跑得通
 - **错误响应中文为主** — 跨语言 API client 解析不便（未来 M_I18N 规划）
 - **Web UI 未对接全部新 API** — 部分 session / 多角色场景管理仍待 UI 集成
+- **角色卡仅支持 PNG / JSON** — PNG 覆盖 `tEXt` / `zTXt` / `iTXt`（含 zlib 压缩），`ccv3`(V3) 优先回退 `chara`(V2)，v1 平铺卡自动归一化为 v2。WEBP / JPEG 非 SillyTavern 标准导出格式，暂不支持（未来扩展：EXIF/XMP 字节扫描解卡）
 
 ---
 
