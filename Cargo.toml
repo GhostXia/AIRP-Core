@@ -40,6 +40,7 @@ sha2 = "0.10"
 # minor bumps may break wire compatibility, so allow only patch updates.
 rmcp = { version = "~1.7", features = ["server", "transport-io", "macros", "transport-streamable-http-server", "transport-streamable-http-server-session"] }
 schemars = "0.8"
+flate2 = { version = "1.1.9", default-features = false, features = ["rust_backend"] }
 
 [dev-dependencies]
 tempfile = "3.0"

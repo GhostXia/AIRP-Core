@@ -73,6 +73,7 @@ fn test_mcp2_import_card_json() {
         character_id: "Alice".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
+            card_path: None,
         idempotency_key: None,
     };
     let out = s.import_card(Parameters(req)).unwrap();
@@ -96,6 +97,7 @@ fn test_mcp2_import_card_missing_source() {
         character_id: "x".to_string(),
         card_json: None,
         card_png_base64: None,
+            card_path: None,
         idempotency_key: None,
     };
     assert!(s.import_card(Parameters(req)).is_err());
@@ -109,6 +111,7 @@ fn test_mcp2_apply_lorebook_triggered() {
         character_id: "Alice".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
+            card_path: None,
         idempotency_key: None,
     }))
     .unwrap();
@@ -129,6 +132,7 @@ fn test_mcp2_apply_lorebook_no_match() {
         character_id: "Alice".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
+            card_path: None,
         idempotency_key: None,
     }))
     .unwrap();
@@ -163,6 +167,7 @@ fn test_mcp2_start_session_returns_prompt_and_greetings() {
         character_id: "Alice".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
+            card_path: None,
         idempotency_key: None,
     }))
     .unwrap();
@@ -194,6 +199,7 @@ fn test_mcp3_dispatch_characters_list() {
         character_id: "bob".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
+            card_path: None,
         idempotency_key: None,
     }))
     .unwrap();
@@ -201,6 +207,7 @@ fn test_mcp3_dispatch_characters_list() {
         character_id: "alice".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
+            card_path: None,
         idempotency_key: None,
     }))
     .unwrap();
@@ -224,6 +231,7 @@ fn test_mcp3_dispatch_card() {
         character_id: "Alice".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
+            card_path: None,
         idempotency_key: None,
     }))
     .unwrap();
@@ -245,6 +253,7 @@ fn test_mcp3_dispatch_lorebook() {
         character_id: "Alice".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
+            card_path: None,
         idempotency_key: None,
     }))
     .unwrap();
@@ -307,6 +316,7 @@ fn test_mcp4_assemble_system_prompt_works() {
         character_id: "Alice".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
+            card_path: None,
         idempotency_key: None,
     }))
     .unwrap();
@@ -390,7 +400,8 @@ fn test_ds5_import_preset_ok() {
     let out = s
         .import_preset(Parameters(ImportPresetRequest {
             preset_id: "my_preset".to_string(),
-            preset_json: preset_json.clone(),
+            preset_json: Some(preset_json.clone()),
+            preset_path: None,
             idempotency_key: None,
         }))
         .unwrap();
@@ -413,7 +424,7 @@ fn test_ds5_import_preset_invalid_json() {
     let s = AirpMcpServer::new(tmp.path().to_path_buf());
     let r = s.import_preset(Parameters(ImportPresetRequest {
         preset_id: "bad".to_string(),
-        preset_json: "not-json{{".to_string(),
+        preset_json: Some("not-json{{".to_string()), preset_path: None,
         idempotency_key: None,
     }));
     assert!(r.is_err());
@@ -425,7 +436,7 @@ fn test_ds5_import_preset_bad_id() {
     let s = AirpMcpServer::new(tmp.path().to_path_buf());
     let r = s.import_preset(Parameters(ImportPresetRequest {
         preset_id: "../etc".to_string(),
-        preset_json: "{}".to_string(),
+        preset_json: Some("{}".to_string()), preset_path: None,
         idempotency_key: None,
     }));
     assert!(r.is_err());
@@ -455,7 +466,7 @@ fn test_ds3_artifacts_lists_after_write() {
 
     s.import_preset(Parameters(ImportPresetRequest {
         preset_id: "p1".to_string(),
-        preset_json: "{}".to_string(),
+        preset_json: Some("{}".to_string()), preset_path: None,
         idempotency_key: None,
     }))
     .unwrap();
@@ -504,6 +515,7 @@ fn test_character_artifacts_empty_when_only_system_files() {
         character_id: "alice".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
+            card_path: None,
         idempotency_key: None,
     }))
     .unwrap();
@@ -532,6 +544,7 @@ fn test_character_artifacts_after_write() {
         character_id: "alice".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
+            card_path: None,
         idempotency_key: None,
     }))
     .unwrap();
@@ -1261,6 +1274,7 @@ fn test_ds10_list_sessions_after_create_session() {
         character_id: "sess_chr".to_string(),
         card_json: Some(test_card_json()),
         card_png_base64: None,
+            card_path: None,
         idempotency_key: None,
     }))
     .unwrap();
@@ -1811,6 +1825,7 @@ fn test_p1_import_card_idempotency() {
             character_id: "alice".to_string(),
             card_json: Some(card_json.clone()),
             card_png_base64: None,
+            card_path: None,
             idempotency_key: Some("ic-key".to_string()),
         }))
         .unwrap();
@@ -1826,6 +1841,7 @@ fn test_p1_import_card_idempotency() {
                 .to_string(),
             ),
             card_png_base64: None,
+            card_path: None,
             idempotency_key: Some("ic-key".to_string()),
         }))
         .unwrap();

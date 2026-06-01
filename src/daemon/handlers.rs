@@ -273,6 +273,14 @@ pub(crate) fn import_card_to_disk(
         ));
     };
 
+    // v1 平铺卡归一化为 v2 schema（data 嵌套）。v2/v3 卡原样返回。
+    // 不归一化则下游 TavernCardV2 解析失败，greetings/lorebook 全丢。
+    let json_str = crate::orchestrator::card::normalize_v1_to_v2(&json_str);
+    // 归一化改写了内容时，回写 card.json 与 raw.json 保持一致。
+    if card_format == "json" {
+        let _ = fs::write(char_dir.join("card.json"), &json_str);
+    }
+
     // CF-7: 解包资产（非阻塞；失败仅 warn）
     extract_card_assets(data_root, character_id, &json_str);
 

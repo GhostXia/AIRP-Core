@@ -9,7 +9,7 @@ pub struct PingRequest {}
 
 #[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
 pub struct ImportCardRequest {
-    /// 角色 ID（文件夹名）。二选一传 `card_json` 或 `card_png_base64`。
+    /// 角色 ID（文件夹名）。三选一传 `card_json` / `card_png_base64` / `card_path`。
     pub character_id: String,
     /// SillyTavern V2 JSON 字符串（可选）。
     #[serde(default)]
@@ -17,6 +17,11 @@ pub struct ImportCardRequest {
     /// PNG 角色卡 base64 编码（可选）。tEXt chara chunk 内 JSON 自动提取。
     #[serde(default)]
     pub card_png_base64: Option<String>,
+    /// 本地文件路径（可选，推荐用于大文件）。AIRP 直接从磁盘读取：
+    /// PNG（magic bytes 自动识别）→ 服务端 tEXt 提取 + 保存原图；
+    /// 其他 → 当作 JSON 文本。避免把大文件读进 LLM context。
+    #[serde(default)]
+    pub card_path: Option<String>,
     /// AUDIT-12: 幂等键。
     #[serde(default)]
     pub idempotency_key: Option<String>,
@@ -130,8 +135,13 @@ pub struct WriteCharacterArtifactRequest {
 pub struct ImportPresetRequest {
     /// 预设 ID（文件夹名，对应 presets/{id}/preset.json）。
     pub preset_id: String,
-    /// SillyTavern Preset JSON 完整内容字符串。必须为合法 JSON。
-    pub preset_json: String,
+    /// SillyTavern Preset JSON 完整内容字符串（可选）。与 `preset_path` 二选一。
+    #[serde(default)]
+    pub preset_json: Option<String>,
+    /// 本地 JSON 文件路径（可选，推荐用于大文件）。AIRP 直接从磁盘读取，
+    /// 避免把大文件读进 LLM context。与 `preset_json` 二选一。
+    #[serde(default)]
+    pub preset_path: Option<String>,
     /// AUDIT-12: 幂等键。
     #[serde(default)]
     pub idempotency_key: Option<String>,
@@ -423,11 +433,53 @@ impl AirpMcpServer {
                 return Ok(cached);
             }
         }
+
+        // P0 path-based import: when only `card_path` is supplied, AIRP reads
+        // the file from disk directly (no LLM-context round-trip / no base64 by
+        // the caller). PNG is auto-detected by magic bytes and routed through
+        // the existing base64 path (which saves card.png + extracts tEXt);
+        // anything else is treated as a JSON text file.
+        let (card_json, card_png_base64) =
+            if req.card_json.is_none() && req.card_png_base64.is_none() {
+                match req.card_path {
+                    Some(ref path) => {
+                        let bytes = std::fs::read(path).map_err(|e| {
+                            ErrorData::invalid_params(
+                                format!("读取 card_path 失败 ({}): {}", path, e),
+                                None,
+                            )
+                        })?;
+                        const PNG_MAGIC: &[u8] =
+                            &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+                        if bytes.starts_with(PNG_MAGIC) {
+                            use base64::{engine::general_purpose, Engine as _};
+                            (None, Some(general_purpose::STANDARD.encode(&bytes)))
+                        } else {
+                            let s = String::from_utf8(bytes).map_err(|e| {
+                                ErrorData::invalid_params(
+                                    format!("card_path 非 PNG 且非 UTF-8 文本: {}", e),
+                                    None,
+                                )
+                            })?;
+                            (Some(crate::data_dir::strip_utf8_bom(&s).to_owned()), None)
+                        }
+                    }
+                    None => {
+                        return Err(ErrorData::invalid_params(
+                            "需提供 card_json / card_png_base64 / card_path 之一".to_string(),
+                            None,
+                        ))
+                    }
+                }
+            } else {
+                (req.card_json.clone(), req.card_png_base64.clone())
+            };
+
         let (card_format, _json_str) = crate::daemon::import_card_to_disk(
             &self.data_root,
             &req.character_id,
-            req.card_json.clone(),
-            req.card_png_base64.clone(),
+            card_json,
+            card_png_base64,
         )
         .map_err(|e| ErrorData::internal_error(format!("import_card 失败: {}", e), None))?;
 
@@ -661,23 +713,44 @@ impl AirpMcpServer {
         crate::data_dir::validate_id_segment(&req.preset_id)
             .map_err(|e| ErrorData::invalid_params(format!("非法 preset_id: {}", e), None))?;
 
+        // P0 path-based import: content comes from inline `preset_json` or, when
+        // absent, is read from `preset_path` on disk (no LLM-context round-trip).
+        let preset_content: String = match (&req.preset_json, &req.preset_path) {
+            (Some(json), _) => json.clone(),
+            (None, Some(path)) => {
+                let raw = std::fs::read_to_string(path).map_err(|e| {
+                    ErrorData::invalid_params(
+                        format!("读取 preset_path 失败 ({}): {}", path, e),
+                        None,
+                    )
+                })?;
+                crate::data_dir::strip_utf8_bom(&raw).to_owned()
+            }
+            (None, None) => {
+                return Err(ErrorData::invalid_params(
+                    "需提供 preset_json 或 preset_path 之一".to_string(),
+                    None,
+                ))
+            }
+        };
+
         // 校验 JSON 合法性（拒绝非 JSON 内容）
-        let _ = serde_json::from_str::<serde_json::Value>(&req.preset_json).map_err(|e| {
-            ErrorData::invalid_params(format!("preset_json 不是合法 JSON: {}", e), None)
+        let _ = serde_json::from_str::<serde_json::Value>(&preset_content).map_err(|e| {
+            ErrorData::invalid_params(format!("preset 内容不是合法 JSON: {}", e), None)
         })?;
 
-        let preset_path = crate::data_dir::preset_json_path(&self.data_root, &req.preset_id);
-        if let Some(parent) = preset_path.parent() {
+        let dest_path = crate::data_dir::preset_json_path(&self.data_root, &req.preset_id);
+        if let Some(parent) = dest_path.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| ErrorData::internal_error(format!("创建目录失败: {}", e), None))?;
         }
-        let bytes = req.preset_json.as_bytes();
-        std::fs::write(&preset_path, bytes)
+        let bytes = preset_content.as_bytes();
+        std::fs::write(&dest_path, bytes)
             .map_err(|e| ErrorData::internal_error(format!("写 preset.json 失败: {}", e), None))?;
 
         let response = serde_json::json!({
             "preset_id": req.preset_id,
-            "path": preset_path.to_string_lossy(),
+            "path": dest_path.to_string_lossy(),
             "bytes_written": bytes.len(),
         })
         .to_string();

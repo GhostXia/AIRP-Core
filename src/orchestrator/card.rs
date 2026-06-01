@@ -60,3 +60,146 @@ pub struct TavernCardV2 {
     pub spec_version: Option<String>,
     pub data: CharacterData,
 }
+
+/// 老 v1 平铺字段名（TavernAI / 早期 ST）→ v2 schema 字段名。
+const V1_LEGACY_MAP: &[(&str, &str)] = &[
+    ("char_name", "name"),
+    ("char_persona", "personality"),
+    ("char_greeting", "first_mes"),
+    ("world_scenario", "scenario"),
+    ("example_dialogue", "mes_example"),
+];
+
+/// v1 卡可能直接放在顶层的字段（v1.5 起多用 v2 风格名）。
+const V1_FLAT_FIELDS: &[&str] = &[
+    "name",
+    "description",
+    "personality",
+    "scenario",
+    "first_mes",
+    "mes_example",
+    "creator_notes",
+    "system_prompt",
+    "post_history_instructions",
+    "alternate_greetings",
+    "tags",
+    "creator",
+    "character_version",
+    "extensions",
+    "character_book",
+];
+
+/// 把 v1 平铺角色卡归一化为 v2 schema（`spec` + `data:{...}`）。
+///
+/// 下游 [`TavernCardV2`] 反序列化要求 `data` 嵌套对象；v1 卡字段平铺在顶层，
+/// 不归一化则 `first_mes` / `character_book` 等全部丢失。已是 v2/v3
+/// （有 `spec` 且 `data` 为对象）的卡原样返回。解析失败也原样返回，
+/// 把错误留给下游统一处理。
+///
+/// 字段映射依据公开的 TavernAI / SillyTavern v1 卡规范。
+pub fn normalize_v1_to_v2(json: &str) -> String {
+    use serde_json::{Map, Value};
+
+    let Ok(root) = serde_json::from_str::<Value>(json) else {
+        return json.to_string();
+    };
+    let Some(obj) = root.as_object() else {
+        return json.to_string();
+    };
+
+    // 已是 v2/v3 且 data 为对象 → 无需归一化。
+    let spec = obj.get("spec").and_then(Value::as_str).unwrap_or("");
+    let data_is_object = obj.get("data").is_some_and(Value::is_object);
+    if matches!(spec, "chara_card_v2" | "chara_card_v3") && data_is_object {
+        return json.to_string();
+    }
+
+    let mut data = Map::new();
+    // 1. v1.5 风格的平铺字段直接搬（v2 风格名优先）。
+    for field in V1_FLAT_FIELDS {
+        if let Some(v) = obj.get(*field) {
+            data.entry(field.to_string()).or_insert_with(|| v.clone());
+        }
+    }
+    // 2. 老字段名 → 新字段名；仅当源卡未直接提供 v2 风格名时才用别名。
+    for (old, new) in V1_LEGACY_MAP {
+        if let Some(v) = obj.get(*old) {
+            data.entry(new.to_string()).or_insert_with(|| v.clone());
+        }
+    }
+    // 3. 混合形态：原卡已有部分 data 块，合并（不覆盖已抬升的字段）。
+    if let Some(existing) = obj.get("data").and_then(Value::as_object) {
+        for (k, v) in existing {
+            data.entry(k.clone()).or_insert_with(|| v.clone());
+        }
+    }
+
+    let normalized = serde_json::json!({
+        "spec": "chara_card_v2",
+        "spec_version": "2.0",
+        "data": Value::Object(data),
+        "_normalized_from_v1": true,
+    });
+    // 序列化失败的概率为 0（输入已是合法 Value），兜底回退原文。
+    serde_json::to_string(&normalized).unwrap_or_else(|_| json.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(json: &str) -> TavernCardV2 {
+        serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn test_v1_legacy_names_mapped() {
+        let v1 = r#"{"char_name":"Bob","char_persona":"勇敢","char_greeting":"你好","world_scenario":"酒馆"}"#;
+        let out = normalize_v1_to_v2(v1);
+        let card = parse(&out);
+        assert_eq!(card.data.name.as_deref(), Some("Bob"));
+        assert_eq!(card.data.personality.as_deref(), Some("勇敢"));
+        assert_eq!(card.data.first_mes.as_deref(), Some("你好"));
+        assert_eq!(card.data.scenario.as_deref(), Some("酒馆"));
+    }
+
+    #[test]
+    fn test_v1_flat_v2style_names_lifted() {
+        let v1 = r#"{"name":"Ann","first_mes":"hi","alternate_greetings":["a","b"]}"#;
+        let out = normalize_v1_to_v2(v1);
+        let card = parse(&out);
+        assert_eq!(card.data.name.as_deref(), Some("Ann"));
+        assert_eq!(card.data.first_mes.as_deref(), Some("hi"));
+        assert_eq!(card.data.alternate_greetings, vec!["a", "b"]);
+    }
+
+    #[test]
+    fn test_v2_card_unchanged() {
+        let v2 = r#"{"spec":"chara_card_v2","data":{"name":"X"}}"#;
+        let out = normalize_v1_to_v2(v2);
+        assert!(!out.contains("_normalized_from_v1"));
+        assert_eq!(parse(&out).data.name.as_deref(), Some("X"));
+    }
+
+    #[test]
+    fn test_v3_card_unchanged() {
+        let v3 = r#"{"spec":"chara_card_v3","data":{"name":"Y"}}"#;
+        let out = normalize_v1_to_v2(v3);
+        assert!(!out.contains("_normalized_from_v1"));
+        assert_eq!(parse(&out).data.name.as_deref(), Some("Y"));
+    }
+
+    #[test]
+    fn test_invalid_json_returned_asis() {
+        let bad = "not json {{";
+        assert_eq!(normalize_v1_to_v2(bad), bad);
+    }
+
+    #[test]
+    fn test_legacy_name_not_overriding_v2style() {
+        // 同时存在 char_name(legacy) 和 name(v2)：name 优先，不被 legacy 覆盖。
+        let v1 = r#"{"char_name":"legacy","name":"modern"}"#;
+        let card = parse(&normalize_v1_to_v2(v1));
+        assert_eq!(card.data.name.as_deref(), Some("modern"));
+    }
+}
