@@ -144,6 +144,53 @@ pub fn normalize_v1_to_v2(json: &str) -> String {
     serde_json::to_string(&normalized).unwrap_or_else(|_| json.to_string())
 }
 
+/// JSON 顶层形状判定结果，用于 import 边界校验，防 card/preset 互相误导入。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JsonShape {
+    /// 角色卡：有 `spec: chara_card_v2/v3` + `data{}`，或 v1 平铺（有 `name`/`first_mes`/`char_name` 等）。
+    Card,
+    /// SillyTavern 预设：有 `prompts[]` + `prompt_order`，或模型参数集，且无角色卡特征字段。
+    Preset,
+    /// 两类特征都不足，无法判定。
+    Unknown,
+}
+
+/// 探测 JSON 顶层属于角色卡还是 SillyTavern 预设。
+///
+/// 机械判定，不读语义：
+/// - 预设特征：顶层 `prompts` 数组 + (`prompt_order` 或 模型参数 temperature/top_p/openai_model)。
+/// - 角色卡特征：`spec=chara_card_v2/v3` + `data` 对象，或 v1 平铺 `name`+`first_mes`（或 legacy `char_name`）。
+/// - 角色卡判定优先于预设：避免内嵌 prompts 的卡被误判（卡的 prompts 在 `data` 内，不在顶层）。
+pub fn detect_json_shape(json: &str) -> JsonShape {
+    use serde_json::Value;
+    let Ok(Value::Object(obj)) = serde_json::from_str::<Value>(json) else {
+        return JsonShape::Unknown;
+    };
+
+    // 角色卡特征（优先）。
+    let spec = obj.get("spec").and_then(Value::as_str).unwrap_or("");
+    let is_v2v3_card =
+        matches!(spec, "chara_card_v2" | "chara_card_v3") && obj.get("data").is_some_and(Value::is_object);
+    let is_v1_card = obj.contains_key("char_name")
+        || (obj.contains_key("first_mes")
+            && (obj.contains_key("name") || obj.contains_key("personality")));
+    if is_v2v3_card || is_v1_card {
+        return JsonShape::Card;
+    }
+
+    // 预设特征：顶层 prompts 数组 + 预设侧佐证字段。
+    let has_prompts = obj.get("prompts").is_some_and(Value::is_array);
+    let has_preset_markers = obj.contains_key("prompt_order")
+        || obj.contains_key("temperature")
+        || obj.contains_key("top_p")
+        || obj.contains_key("openai_model");
+    if has_prompts && has_preset_markers {
+        return JsonShape::Preset;
+    }
+
+    JsonShape::Unknown
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -201,5 +248,55 @@ mod tests {
         let v1 = r#"{"char_name":"legacy","name":"modern"}"#;
         let card = parse(&normalize_v1_to_v2(v1));
         assert_eq!(card.data.name.as_deref(), Some("modern"));
+    }
+
+    // ── detect_json_shape ────────────────────────────────────────────────
+
+    #[test]
+    fn test_shape_preset_prompts_plus_params() {
+        // 真实误识别场景：LENI 预设 = 顶层 prompts[] + temperature 等模型参数。
+        let preset = r#"{"prompts":[{"identifier":"main","name":"Main"}],"temperature":1.19,"prompt_order":[]}"#;
+        assert_eq!(detect_json_shape(preset), JsonShape::Preset);
+    }
+
+    #[test]
+    fn test_shape_v2_card() {
+        let card = r#"{"spec":"chara_card_v2","data":{"name":"X","first_mes":"hi"}}"#;
+        assert_eq!(detect_json_shape(card), JsonShape::Card);
+    }
+
+    #[test]
+    fn test_shape_v3_card() {
+        let card = r#"{"spec":"chara_card_v3","data":{"name":"Y"}}"#;
+        assert_eq!(detect_json_shape(card), JsonShape::Card);
+    }
+
+    #[test]
+    fn test_shape_v1_flat_card() {
+        let card = r#"{"name":"Bob","first_mes":"你好","personality":"勇敢"}"#;
+        assert_eq!(detect_json_shape(card), JsonShape::Card);
+    }
+
+    #[test]
+    fn test_shape_v1_legacy_card() {
+        let card = r#"{"char_name":"Bob","char_greeting":"hi"}"#;
+        assert_eq!(detect_json_shape(card), JsonShape::Card);
+    }
+
+    #[test]
+    fn test_shape_card_wins_over_embedded_prompts() {
+        // 卡内可能含 prompts，但在 data 内、非顶层；顶层有 spec+data → 判 Card。
+        let card = r#"{"spec":"chara_card_v2","data":{"name":"Z"},"prompts":[{"identifier":"x","name":"y"}],"temperature":1.0}"#;
+        assert_eq!(detect_json_shape(card), JsonShape::Card);
+    }
+
+    #[test]
+    fn test_shape_unknown_when_ambiguous() {
+        // 既无卡特征也无预设佐证字段。
+        assert_eq!(detect_json_shape(r#"{"foo":"bar"}"#), JsonShape::Unknown);
+        // prompts[] 但无任何预设佐证字段 → 不强判 Preset。
+        assert_eq!(detect_json_shape(r#"{"prompts":[]}"#), JsonShape::Unknown);
+        // 非法 JSON。
+        assert_eq!(detect_json_shape("not json"), JsonShape::Unknown);
     }
 }

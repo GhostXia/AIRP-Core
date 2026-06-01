@@ -273,6 +273,17 @@ pub(crate) fn import_card_to_disk(
         ));
     };
 
+    // 形状校验：若内容明显是 SillyTavern 预设（顶层 prompts[] + 模型参数），
+    // 拒绝导入为角色卡，提示改用 import_preset。防 agent 误判把预设当卡导入。
+    if matches!(
+        crate::orchestrator::card::detect_json_shape(&json_str),
+        crate::orchestrator::card::JsonShape::Preset
+    ) {
+        return Err(AirpError::BadRequest(
+            "内容像 SillyTavern 预设（顶层 prompts[] + 模型参数），不是角色卡。请改用 import_preset 导入。".to_string(),
+        ));
+    }
+
     // v1 平铺卡归一化为 v2 schema（data 嵌套）。v2/v3 卡原样返回。
     // 不归一化则下游 TavernCardV2 解析失败，greetings/lorebook 全丢。
     let json_str = crate::orchestrator::card::normalize_v1_to_v2(&json_str);
