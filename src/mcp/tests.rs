@@ -442,6 +442,44 @@ fn test_ds5_import_preset_bad_id() {
     assert!(r.is_err());
 }
 
+/// Shape guard: a SillyTavern preset (top-level prompts[] + model params)
+/// must be rejected by import_card with guidance to use import_preset.
+#[test]
+fn test_shape_guard_preset_rejected_by_import_card() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    let preset = r#"{"prompts":[{"identifier":"main","name":"Main"}],"temperature":1.19,"prompt_order":[]}"#;
+    let r = s.import_card(Parameters(ImportCardRequest {
+        character_id: "leni".to_string(),
+        card_json: Some(preset.to_string()),
+        card_png_base64: None,
+        card_path: None,
+        idempotency_key: None,
+    }));
+    let err = r.unwrap_err().to_string();
+    assert!(err.contains("import_preset"), "should redirect: {err}");
+    // 不应落盘
+    assert!(!tmp.path().join("characters").join("leni").join("card.json").exists());
+}
+
+/// Shape guard: a character card must be rejected by import_preset with
+/// guidance to use import_card.
+#[test]
+fn test_shape_guard_card_rejected_by_import_preset() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    let card = r#"{"spec":"chara_card_v2","data":{"name":"X","first_mes":"hi"}}"#;
+    let r = s.import_preset(Parameters(ImportPresetRequest {
+        preset_id: "oops".to_string(),
+        preset_json: Some(card.to_string()),
+        preset_path: None,
+        idempotency_key: None,
+    }));
+    let err = r.unwrap_err().to_string();
+    assert!(err.contains("import_card"), "should redirect: {err}");
+    assert!(!tmp.path().join("presets").join("oops").join("preset.json").exists());
+}
+
 // ── DS-3 artifacts resource ──────────────────────────────────────────────
 
 #[test]

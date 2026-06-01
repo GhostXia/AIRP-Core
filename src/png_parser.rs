@@ -28,6 +28,16 @@ fn inflate_zlib(data: &[u8]) -> Option<String> {
 /// 支持 `tEXt` 和未压缩 `iTXt` 文本块；键名 `ccv3`(V3) 优先，回退 `chara`(V2)。
 pub fn parse_png_character_card<P: AsRef<Path>>(path: P) -> Result<String, AirpError> {
     let mut file = File::open(path)?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)?;
+    parse_png_character_card_bytes(&bytes)
+}
+
+/// 同 [`parse_png_character_card`]，但直接从内存字节解析（不触磁盘）。
+/// 用于 import 边界：先 decode + 校验形状再决定是否落盘，避免脏文件残留。
+pub fn parse_png_character_card_bytes(bytes: &[u8]) -> Result<String, AirpError> {
+    use std::io::Cursor;
+    let mut file = Cursor::new(bytes);
 
     // 1. 验证 PNG 头部签名
     let mut signature = [0u8; 8];
