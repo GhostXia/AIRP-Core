@@ -41,7 +41,7 @@
 
 | 项 | 值 |
 |---|---|
-| 测试 | **447** passing（lib 437 + integration 10），1 ignored |
+| 测试 | **465** passing（lib 455 + integration 10），1 ignored |
 | Clippy `--lib --bins -- -D warnings` | **0** warning |
 | MCP 工具 | 39（含 5 user persona + 4 P0 读 + delete_character + 4 scene CRUD + 3 volume ops + 6 plugin data，全部带 ToolAnnotations） |
 | MCP 资源 | 4 静态 + 12 模板 |
