@@ -53,6 +53,17 @@
 
 ## 快速开始
 
+### 零基础路线（非程序员，无需 Rust 工具链）
+
+1. 从 [GitHub Releases](https://github.com/GhostXia/AIRP-Core/releases) 下载对应平台的压缩包（Windows / Linux / macOS），解压得到 `airp-core`（Windows 为 `airp-core.exe`）
+2. 在 Claude Code 里一条命令注册（路径换成你的实际位置）：
+   ```
+   claude mcp add airp -- C:\airp\airp-core.exe mcp --data-dir C:\airp\data
+   ```
+3. 完成。对 Claude 说"导入这张角色卡并开始会话"即可 — 39 个工具自动可用，数据落在 `data/` 目录纯文本文件里，随时可看可备份。
+
+> 其他 MCP 客户端（Claude Desktop / Cursor / Continue / Pi）：参考 `mcp_config.example.json` 配置模板。
+
 ### Windows 构建环境
 
 ```powershell

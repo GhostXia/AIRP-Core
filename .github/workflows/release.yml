@@ -1,0 +1,93 @@
+name: Release
+
+# 低门槛分发：打 tag（v*）即产出三平台预编译二进制，非程序员
+# 直接下载解压可用，无需 Rust 工具链。
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  BIN_NAME: airp-core
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive: tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: zip
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            archive: tar.gz
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry & target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-release-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-release-${{ matrix.target }}-
+
+      - name: cargo build --release
+        # 本仓 .cargo/config.toml 把 target 钉在 x86_64-pc-windows-gnu（本地开发机约束）。
+        # CI 用 CARGO_BUILD_TARGET 覆盖为各平台原生 target（与 ci.yml 同一手法）。
+        env:
+          CARGO_BUILD_TARGET: ${{ matrix.target }}
+        run: cargo build --release --locked
+
+      - name: Package (tar.gz)
+        if: matrix.archive == 'tar.gz'
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar czf ${{ env.BIN_NAME }}-${{ github.ref_name }}-${{ matrix.target }}.tar.gz ${{ env.BIN_NAME }}
+          mv ${{ env.BIN_NAME }}-${{ github.ref_name }}-${{ matrix.target }}.tar.gz $GITHUB_WORKSPACE/
+
+      - name: Package (zip)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "target/${{ matrix.target }}/release/${{ env.BIN_NAME }}.exe" `
+            -DestinationPath "${{ env.BIN_NAME }}-${{ github.ref_name }}-${{ matrix.target }}.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BIN_NAME }}-${{ matrix.target }}
+          path: ${{ env.BIN_NAME }}-${{ github.ref_name }}-${{ matrix.target }}.*
+
+  release:
+    name: publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Create release with binaries
+        uses: softprops/action-gh-release@v2
+        with:
+          files: airp-core-*
+          generate_release_notes: true
