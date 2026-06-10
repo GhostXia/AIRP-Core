@@ -121,6 +121,9 @@ impl AirpMcpServer {
     /// - `airp://characters/{id}/state/live` → state/live.json（无则空对象）
     /// - `airp://presets` → 预设 ID 列表
     /// - `airp://presets/{id}/raw` → presets/{id}/preset.json 原文（供 Agent 自主分析）
+    /// - `airp://plugins` → 插件命名空间列表（M_PLUGIN_DATA）
+    /// - `airp://plugins/{name}/files` → 插件文件相对路径列表（递归）
+    /// - `airp://plugins/{name}/data/{path}` → 插件文件内容（UTF-8，支持分页）
     pub(super) fn dispatch_resource(&self, uri: &str) -> Result<Vec<ResourceContents>, ErrorData> {
         // airp://presets
         if uri == "airp://presets" {
@@ -203,6 +206,80 @@ impl AirpMcpServer {
             return Ok(vec![
                 ResourceContents::text(json, uri).with_mime_type("application/json")
             ]);
+        }
+
+        // M_PLUGIN_DATA: airp://plugins → 插件命名空间列表
+        if uri == "airp://plugins" {
+            let plugins_dir = self.data_root.join("plugins");
+            let mut names: Vec<String> = Vec::new();
+            if let Ok(entries) = std::fs::read_dir(&plugins_dir) {
+                for entry in entries.filter_map(|e| e.ok()) {
+                    if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                        names.push(entry.file_name().to_string_lossy().into_owned());
+                    }
+                }
+            }
+            names.sort();
+            let json = serde_json::to_string(&names).unwrap_or_else(|_| "[]".to_string());
+            return Ok(vec![
+                ResourceContents::text(json, uri).with_mime_type("application/json")
+            ]);
+        }
+
+        // M_PLUGIN_DATA: airp://plugins/{plugin_name}/...
+        if let Some(rest) = uri.strip_prefix("airp://plugins/") {
+            let mut split = rest.splitn(2, '/');
+            let pname = split
+                .next()
+                .ok_or_else(|| ErrorData::invalid_params("缺 plugin_name".to_string(), None))?;
+            let sub_full = split.next().unwrap_or("");
+            let sub = sub_full.split_once('?').map(|(s, _)| s).unwrap_or(sub_full);
+            crate::data_dir::validate_id_segment(pname)
+                .map_err(|e| ErrorData::invalid_params(format!("非法 plugin_name: {}", e), None))?;
+            let plugin_dir = self.data_root.join("plugins").join(pname);
+
+            if sub == "files" {
+                // 递归列出插件命名空间下所有文件（无系统目录需排除 — 全部是插件自己的数据）
+                let mut files = Vec::new();
+                walk_dir_recursive(&plugin_dir, &plugin_dir, &[], &[], &mut files);
+                files.sort();
+                let json = serde_json::to_string(&files).unwrap_or_else(|_| "[]".to_string());
+                return Ok(vec![
+                    ResourceContents::text(json, uri).with_mime_type("application/json")
+                ]);
+            }
+            if let Some(rel_path) = sub.strip_prefix("data/") {
+                if !plugin_dir.exists() {
+                    return Err(ErrorData::invalid_params(
+                        format!("插件 `{}` 不存在", pname),
+                        None,
+                    ));
+                }
+                let target = crate::data_dir::safe_resolve_for_write(&plugin_dir, rel_path)
+                    .map_err(|e| {
+                        ErrorData::invalid_params(format!("非法插件数据路径: {}", e), None)
+                    })?;
+                if !target.is_file() {
+                    return Err(ErrorData::invalid_params(
+                        format!("文件不存在: plugins/{}/{}", pname, rel_path),
+                        None,
+                    ));
+                }
+                let raw = std::fs::read_to_string(&target).map_err(|_| {
+                    ErrorData::invalid_params(
+                        "文件非 UTF-8 文本，请用 plugin_blob_read 工具以 base64 读取".to_string(),
+                        None,
+                    )
+                })?;
+                let output = paginate_text(&raw, uri);
+                return Ok(vec![
+                    ResourceContents::text(output, uri).with_mime_type("text/plain")
+                ]);
+            }
+            return Err(ErrorData::invalid_params(
+                format!("未知插件子资源 '{}' (URI={})", sub, uri),
+                None,
+            ));
         }
 
         // M_UP: airp://users

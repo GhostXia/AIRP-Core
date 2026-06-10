@@ -380,6 +380,92 @@ pub struct GetUserStateHistoryRequest {
     pub n: usize,
 }
 
+// ── M_PLUGIN_DATA: 零 schema 插件数据原语（戒律 4：开放接入）─────────────────
+// 任何语言的 MCP client 用三类通用原语（KV / JSONL append / blob）即可存取
+// 自己的数据，无需 manifest / 注册 / schema。AIRP 不解析、不校验、不索引语义。
+// 数据落地 data/plugins/{plugin_name}/，完全任意文件树。
+
+/// M_PLUGIN_DATA: 读取插件 KV 值。
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct PluginKvGetRequest {
+    /// 插件命名空间（插件自定字符串 ID，唯一防冲突；如 `dice-roller`）。
+    pub plugin_name: String,
+    /// KV 键名（叶名，不允许路径分隔符）。存储为 plugins/{plugin_name}/{key}.json。
+    pub key: String,
+}
+
+/// M_PLUGIN_DATA: 写入插件 KV 值。
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
+pub struct PluginKvSetRequest {
+    pub plugin_name: String,
+    /// KV 键名（叶名，不允许路径分隔符）。
+    pub key: String,
+    /// 任意合法 JSON 值（对象 / 数组 / 标量均可）。AIRP 不解析语义。
+    pub value_json: String,
+    /// AUDIT-12: 幂等键。
+    #[serde(default)]
+    pub idempotency_key: Option<String>,
+}
+
+/// M_PLUGIN_DATA: 向插件 JSONL 文件追加一行。
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
+pub struct PluginJsonlAppendRequest {
+    pub plugin_name: String,
+    /// 相对路径（plugins/{plugin_name}/ 之下），如 `events.jsonl`。允许子目录，不允许 `..` / 绝对路径。
+    pub file: String,
+    /// 单条 JSON（任意合法 JSON 值）。写入前压缩为单行，保证 JSONL 一行一条不变式。
+    pub line_json: String,
+    /// AUDIT-12: 幂等键。
+    #[serde(default)]
+    pub idempotency_key: Option<String>,
+}
+
+fn default_plugin_jsonl_limit() -> usize {
+    100
+}
+
+/// M_PLUGIN_DATA: 读取插件 JSONL 文件行。
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct PluginJsonlReadRequest {
+    pub plugin_name: String,
+    /// 相对路径（plugins/{plugin_name}/ 之下）。
+    pub file: String,
+    /// 起始行号（0-based，默认 0）。
+    #[serde(default)]
+    pub offset: usize,
+    /// 最多返回行数（默认 100，clamp 到 [1, 1000]）。
+    #[serde(default = "default_plugin_jsonl_limit")]
+    pub limit: usize,
+}
+
+/// M_PLUGIN_DATA: 写入插件 blob 文件。
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
+pub struct PluginBlobWriteRequest {
+    pub plugin_name: String,
+    /// 相对路径（plugins/{plugin_name}/ 之下），如 `assets/map.png`。允许子目录，不允许 `..` / 绝对路径。
+    pub rel_path: String,
+    /// 二选一：base64 编码内容（二进制文件用，standard alphabet）。
+    #[serde(default)]
+    pub content_base64: Option<String>,
+    /// 二选一：UTF-8 文本内容（文本文件用，免 base64 开销）。
+    #[serde(default)]
+    pub content_text: Option<String>,
+    /// AUDIT-12: 幂等键。
+    #[serde(default)]
+    pub idempotency_key: Option<String>,
+}
+
+/// M_PLUGIN_DATA: 读取插件 blob 文件。
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
+pub struct PluginBlobReadRequest {
+    pub plugin_name: String,
+    /// 相对路径（plugins/{plugin_name}/ 之下）。
+    pub rel_path: String,
+    /// true 时按 UTF-8 文本返回 content_text（非 UTF-8 报错）；false（默认）返回 content_base64。
+    #[serde(default)]
+    pub as_text: bool,
+}
+
 // ── 工具实现（业务逻辑）─────────────────────────────────────────────────────
 // #[tool_router] 宏生成的 fn tool_router() 是 mod.rs 私有，故 thin wrappers 留在 mod.rs。
 // 此处只存放实际业务逻辑（供 mod.rs wrappers 调用，pub(super) 可见）。
@@ -1957,5 +2043,320 @@ impl AirpMcpServer {
             "count": count,
         })
         .to_string())
+    }
+
+    // ── M_PLUGIN_DATA implementations（零 schema 插件数据原语，戒律 4）────────
+
+    /// 校验 plugin_name 并返回 plugins/{plugin_name}/ 路径（不创建）。
+    fn plugin_dir(&self, plugin_name: &str) -> Result<std::path::PathBuf, ErrorData> {
+        crate::data_dir::validate_id_segment(plugin_name)
+            .map_err(|e| ErrorData::invalid_params(format!("非法 plugin_name: {}", e), None))?;
+        Ok(self.data_root.join("plugins").join(plugin_name))
+    }
+
+    /// 校验 plugin_name 并确保 plugins/{plugin_name}/ 存在（写路径用，
+    /// `safe_resolve_for_write` 需 canonicalize 基目录）。
+    fn plugin_dir_ensured(&self, plugin_name: &str) -> Result<std::path::PathBuf, ErrorData> {
+        let dir = self.plugin_dir(plugin_name)?;
+        std::fs::create_dir_all(&dir).map_err(|e| {
+            ErrorData::internal_error(
+                format!("创建 plugins/{} 目录失败: {}", plugin_name, e),
+                None,
+            )
+        })?;
+        Ok(dir)
+    }
+
+    /// M_PLUGIN_DATA: 读 KV。文件不存在时 present=false + value=null（不报错，便于探测）。
+    pub(super) fn plugin_kv_get_impl(
+        &self,
+        Parameters(req): Parameters<PluginKvGetRequest>,
+    ) -> Result<String, ErrorData> {
+        let dir = self.plugin_dir(&req.plugin_name)?;
+        crate::data_dir::validate_id_segment(&req.key)
+            .map_err(|e| ErrorData::invalid_params(format!("非法 key: {}", e), None))?;
+        let path = dir.join(format!("{}.json", req.key));
+        let (present, value) = if path.exists() {
+            let raw = std::fs::read_to_string(&path)
+                .map_err(|e| ErrorData::internal_error(format!("读 KV 文件失败: {}", e), None))?;
+            let v: serde_json::Value = serde_json::from_str(crate::data_dir::strip_utf8_bom(&raw))
+                .map_err(|e| {
+                    ErrorData::internal_error(
+                        format!(
+                            "KV 文件 {}.json 非合法 JSON（被外部修改？）: {}",
+                            req.key, e
+                        ),
+                        None,
+                    )
+                })?;
+            (true, v)
+        } else {
+            (false, serde_json::Value::Null)
+        };
+        Ok(serde_json::json!({
+            "plugin_name": req.plugin_name,
+            "key": req.key,
+            "present": present,
+            "value": value,
+        })
+        .to_string())
+    }
+
+    /// M_PLUGIN_DATA: 写 KV。value_json 任意合法 JSON 值，AIRP 不解析语义。
+    pub(super) fn plugin_kv_set_impl(
+        &self,
+        Parameters(req): Parameters<PluginKvSetRequest>,
+    ) -> Result<String, ErrorData> {
+        // AUDIT-12: idempotency short-circuit
+        if let Some(ref key) = req.idempotency_key {
+            if let Some(cached) = self.idempotency.get("plugin_kv_set", key) {
+                return Ok(cached);
+            }
+        }
+        crate::data_dir::validate_id_segment(&req.key)
+            .map_err(|e| ErrorData::invalid_params(format!("非法 key: {}", e), None))?;
+        let _: serde_json::Value = serde_json::from_str(&req.value_json).map_err(|e| {
+            ErrorData::invalid_params(format!("value_json 非合法 JSON: {}", e), None)
+        })?;
+
+        let dir = self.plugin_dir_ensured(&req.plugin_name)?;
+        let path = dir.join(format!("{}.json", req.key));
+        std::fs::write(&path, req.value_json.as_bytes())
+            .map_err(|e| ErrorData::internal_error(format!("写 KV 文件失败: {}", e), None))?;
+
+        // 戒律 4 推论 3：插件数据 resource 可订阅 — 写后推送变更通知
+        emit_resource_updated(
+            &self.state_subs,
+            format!("airp://plugins/{}/data/{}.json", req.plugin_name, req.key),
+        );
+
+        let response = serde_json::json!({
+            "plugin_name": req.plugin_name,
+            "key": req.key,
+            "bytes_written": req.value_json.len(),
+        })
+        .to_string();
+        if let Some(ref key) = req.idempotency_key {
+            self.idempotency
+                .store("plugin_kv_set", key, response.clone());
+        }
+        Ok(response)
+    }
+
+    /// M_PLUGIN_DATA: JSONL 追加。压缩为单行后 O(1) append（与 chat_store 同一不变式）。
+    pub(super) fn plugin_jsonl_append_impl(
+        &self,
+        Parameters(req): Parameters<PluginJsonlAppendRequest>,
+    ) -> Result<String, ErrorData> {
+        // AUDIT-12: idempotency short-circuit
+        if let Some(ref key) = req.idempotency_key {
+            if let Some(cached) = self.idempotency.get("plugin_jsonl_append", key) {
+                return Ok(cached);
+            }
+        }
+        let parsed: serde_json::Value = serde_json::from_str(&req.line_json).map_err(|e| {
+            ErrorData::invalid_params(format!("line_json 非合法 JSON: {}", e), None)
+        })?;
+        let compact = serde_json::to_string(&parsed)
+            .map_err(|e| ErrorData::internal_error(format!("JSON 序列化失败: {}", e), None))?;
+
+        let dir = self.plugin_dir_ensured(&req.plugin_name)?;
+        let target = crate::data_dir::safe_resolve_for_write(&dir, &req.file)
+            .map_err(|e| ErrorData::invalid_params(format!("非法 file 路径: {}", e), None))?;
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| ErrorData::internal_error(format!("创建目录失败: {}", e), None))?;
+        }
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&target)
+            .map_err(|e| ErrorData::internal_error(format!("打开 JSONL 失败: {}", e), None))?;
+        writeln!(f, "{}", compact)
+            .map_err(|e| ErrorData::internal_error(format!("追加 JSONL 失败: {}", e), None))?;
+
+        emit_resource_updated(
+            &self.state_subs,
+            format!("airp://plugins/{}/data/{}", req.plugin_name, req.file),
+        );
+
+        let response = serde_json::json!({
+            "plugin_name": req.plugin_name,
+            "file": req.file,
+            "bytes_appended": compact.len() + 1,
+        })
+        .to_string();
+        if let Some(ref key) = req.idempotency_key {
+            self.idempotency
+                .store("plugin_jsonl_append", key, response.clone());
+        }
+        Ok(response)
+    }
+
+    /// M_PLUGIN_DATA: JSONL 读取。文件不存在返回空结果（不报错，便于探测）。
+    pub(super) fn plugin_jsonl_read_impl(
+        &self,
+        Parameters(req): Parameters<PluginJsonlReadRequest>,
+    ) -> Result<String, ErrorData> {
+        let dir = self.plugin_dir(&req.plugin_name)?;
+        let limit = req.limit.clamp(1, 1000);
+
+        let empty = |total: usize| {
+            serde_json::json!({
+                "plugin_name": req.plugin_name,
+                "file": req.file,
+                "total_lines": total,
+                "offset": req.offset,
+                "returned": 0,
+                "lines": [],
+            })
+            .to_string()
+        };
+        if !dir.exists() {
+            return Ok(empty(0));
+        }
+        let target = crate::data_dir::safe_resolve_for_write(&dir, &req.file)
+            .map_err(|e| ErrorData::invalid_params(format!("非法 file 路径: {}", e), None))?;
+        if !target.exists() {
+            return Ok(empty(0));
+        }
+        let raw = std::fs::read_to_string(&target)
+            .map_err(|e| ErrorData::internal_error(format!("读 JSONL 失败: {}", e), None))?;
+        let all: Vec<&str> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
+        let total = all.len();
+        // 行容错：合法 JSON 解析为值，非 JSON 行原样返回字符串（零 schema，不强加格式）
+        let lines: Vec<serde_json::Value> = all
+            .into_iter()
+            .skip(req.offset)
+            .take(limit)
+            .map(|l| {
+                serde_json::from_str(l).unwrap_or_else(|_| serde_json::Value::String(l.to_owned()))
+            })
+            .collect();
+        let returned = lines.len();
+        Ok(serde_json::json!({
+            "plugin_name": req.plugin_name,
+            "file": req.file,
+            "total_lines": total,
+            "offset": req.offset,
+            "returned": returned,
+            "lines": lines,
+        })
+        .to_string())
+    }
+
+    /// M_PLUGIN_DATA: blob 写入。content_base64（二进制）/ content_text（UTF-8）二选一。
+    pub(super) fn plugin_blob_write_impl(
+        &self,
+        Parameters(req): Parameters<PluginBlobWriteRequest>,
+    ) -> Result<String, ErrorData> {
+        // AUDIT-12: idempotency short-circuit
+        if let Some(ref key) = req.idempotency_key {
+            if let Some(cached) = self.idempotency.get("plugin_blob_write", key) {
+                return Ok(cached);
+            }
+        }
+        let (bytes, encoding) = match (&req.content_base64, &req.content_text) {
+            (Some(b64), None) => {
+                use base64::Engine;
+                let decoded = base64::engine::general_purpose::STANDARD
+                    .decode(b64.trim())
+                    .map_err(|e| {
+                        ErrorData::invalid_params(format!("content_base64 解码失败: {}", e), None)
+                    })?;
+                (decoded, "base64")
+            }
+            (None, Some(text)) => (text.as_bytes().to_vec(), "text"),
+            _ => {
+                return Err(ErrorData::invalid_params(
+                    "content_base64 / content_text 必须二选一（恰好一个）".to_string(),
+                    None,
+                ))
+            }
+        };
+
+        let dir = self.plugin_dir_ensured(&req.plugin_name)?;
+        let target = crate::data_dir::safe_resolve_for_write(&dir, &req.rel_path)
+            .map_err(|e| ErrorData::invalid_params(format!("非法 rel_path: {}", e), None))?;
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| ErrorData::internal_error(format!("创建目录失败: {}", e), None))?;
+        }
+        std::fs::write(&target, &bytes)
+            .map_err(|e| ErrorData::internal_error(format!("写 blob 失败: {}", e), None))?;
+
+        emit_resource_updated(
+            &self.state_subs,
+            format!("airp://plugins/{}/data/{}", req.plugin_name, req.rel_path),
+        );
+
+        let response = serde_json::json!({
+            "plugin_name": req.plugin_name,
+            "rel_path": req.rel_path,
+            "bytes_written": bytes.len(),
+            "encoding": encoding,
+        })
+        .to_string();
+        if let Some(ref key) = req.idempotency_key {
+            self.idempotency
+                .store("plugin_blob_write", key, response.clone());
+        }
+        Ok(response)
+    }
+
+    /// M_PLUGIN_DATA: blob 读取。默认 base64；as_text=true 时 UTF-8 文本。
+    /// 上限 4 MiB — 超限报错（MCP 消息体保护），大文件请插件直接走文件系统。
+    pub(super) fn plugin_blob_read_impl(
+        &self,
+        Parameters(req): Parameters<PluginBlobReadRequest>,
+    ) -> Result<String, ErrorData> {
+        const MAX_BLOB_READ: u64 = 4 * 1024 * 1024;
+        let dir = self.plugin_dir(&req.plugin_name)?;
+        if !dir.exists() {
+            return Err(ErrorData::invalid_params(
+                format!("插件 `{}` 不存在（plugins/ 下无此目录）", req.plugin_name),
+                None,
+            ));
+        }
+        let target = crate::data_dir::safe_resolve_for_write(&dir, &req.rel_path)
+            .map_err(|e| ErrorData::invalid_params(format!("非法 rel_path: {}", e), None))?;
+        if !target.is_file() {
+            return Err(ErrorData::invalid_params(
+                format!("文件不存在: plugins/{}/{}", req.plugin_name, req.rel_path),
+                None,
+            ));
+        }
+        let size = std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0);
+        if size > MAX_BLOB_READ {
+            return Err(ErrorData::invalid_params(
+                format!(
+                    "blob 大小 {} 字节超过单次读取上限 {} 字节；大文件请直接从文件系统读 plugins/{}/{}",
+                    size, MAX_BLOB_READ, req.plugin_name, req.rel_path
+                ),
+                None,
+            ));
+        }
+        let bytes = std::fs::read(&target)
+            .map_err(|e| ErrorData::internal_error(format!("读 blob 失败: {}", e), None))?;
+        let mut out = serde_json::json!({
+            "plugin_name": req.plugin_name,
+            "rel_path": req.rel_path,
+            "size": bytes.len(),
+        });
+        if req.as_text {
+            let text = String::from_utf8(bytes).map_err(|_| {
+                ErrorData::invalid_params(
+                    "文件非合法 UTF-8，请用 as_text=false 以 base64 读取".to_string(),
+                    None,
+                )
+            })?;
+            out["content_text"] = serde_json::Value::String(text);
+        } else {
+            use base64::Engine;
+            out["content_base64"] =
+                serde_json::Value::String(base64::engine::general_purpose::STANDARD.encode(&bytes));
+        }
+        Ok(out.to_string())
     }
 }

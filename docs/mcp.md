@@ -7,7 +7,7 @@ AIRP exposes a full MCP (Model Context Protocol) server over two transports:
 | **stdio** | `airp-core mcp` | Claude Desktop / Claude Code (recommended) |
 | **HTTP Streamable** | `POST /mcp/v1` + `GET /mcp/v1` SSE | Remote agents, HTTP-based MCP clients |
 
-**Tool count**: 33 (see `airp-core list-tools --format summary` for the live list — that command reads `rmcp::ToolRouter::list_all()` so it never falls out of sync with the code).
+**Tool count**: 39 (see `airp-core list-tools --format summary` for the live list — that command reads `rmcp::ToolRouter::list_all()` so it never falls out of sync with the code).
 
 ## Universal conventions
 
@@ -18,7 +18,7 @@ Every tool ships with MCP standard `annotations` (AUDIT-11) so harnesses can aut
 - `idempotentHint: true` — repeated calls converge to the same state
 - `openWorldHint: false` — every AIRP tool only touches the local `data/` dir
 
-Every write tool (12 of them) accepts an optional `idempotency_key` (AUDIT-12). Pass the same key on retry; the cache (FIFO 1000, TTL 24 h) returns the original response and skips the side effect.
+Every write tool (15 of them) accepts an optional `idempotency_key` (AUDIT-12). Pass the same key on retry; the cache (FIFO 1000, TTL 24 h) returns the original response and skips the side effect.
 
 ## Quick Start (Claude Code)
 
@@ -632,6 +632,48 @@ Empty current.md (and no override) returns an error — there's nothing to archi
 
 ---
 
+## Plugin data tools (M_PLUGIN_DATA)
+
+Zero-schema data primitives for **any third-party plugin, in any language, with no registration** (戒律 4 — Open Plug-in Principle). A "plugin" is just an MCP client that picks a unique `plugin_name` string; AIRP never parses, validates, or indexes the data it stores. Everything lands under `data/plugins/{plugin_name}/` as an arbitrary file tree.
+
+There is **no** manifest, capability registry, version negotiation, or lifecycle management — connect, call tools, disconnect. Plugins that want to cooperate share a namespace or read each other's files.
+
+All three write tools accept `idempotency_key` and emit `notifications/resources/updated` for `airp://plugins/{plugin_name}/data/{path}` subscribers (use AIRP as a zero-code event bus).
+
+### `plugin_kv_get`
+**Input:** `{ "plugin_name": "dice-roller", "key": "config" }`
+**Output:** `{ "plugin_name": ..., "key": ..., "present": true, "value": {...} }`
+Missing key returns `present: false, value: null` (no error — probe-friendly). Storage: `plugins/{plugin_name}/{key}.json`.
+
+### `plugin_kv_set`
+**Input:** `{ "plugin_name": "dice-roller", "key": "config", "value_json": "{\"sides\": 20}" }`
+**Output:** `{ "plugin_name": ..., "key": ..., "bytes_written": 13 }`
+`value_json` is any valid JSON value (object / array / scalar).
+
+### `plugin_jsonl_append`
+**Input:** `{ "plugin_name": "tracker", "file": "events.jsonl", "line_json": "{\"event\": \"roll\"}" }`
+**Output:** `{ "plugin_name": ..., "file": ..., "bytes_appended": 17 }`
+O(1) append (same invariant as chat logs). `line_json` is compacted to a single line before writing. `file` may contain subdirectories (`logs/2026/run.jsonl`); `..` and absolute paths are rejected.
+
+### `plugin_jsonl_read`
+**Input:** `{ "plugin_name": "tracker", "file": "events.jsonl", "offset": 0, "limit": 100 }`
+**Output:** `{ "plugin_name": ..., "file": ..., "total_lines": 3, "offset": 0, "returned": 3, "lines": [...] }`
+`limit` clamps to [1, 1000]. Valid JSON lines are parsed; non-JSON lines come back as raw strings. Missing file returns `total_lines: 0` (no error).
+
+### `plugin_blob_write`
+**Input:** exactly one of `content_base64` (binary) or `content_text` (UTF-8, skips base64 overhead):
+```json
+{ "plugin_name": "map-maker", "rel_path": "assets/tile.png", "content_base64": "iVBOR..." }
+```
+**Output:** `{ "plugin_name": ..., "rel_path": ..., "bytes_written": 6, "encoding": "base64" }`
+
+### `plugin_blob_read`
+**Input:** `{ "plugin_name": "map-maker", "rel_path": "assets/tile.png", "as_text": false }`
+**Output:** `{ "plugin_name": ..., "rel_path": ..., "size": 6, "content_base64": "..." }` (or `content_text` when `as_text: true`)
+Single-read cap: 4 MiB (MCP message-size protection). Larger files: read `data/plugins/...` from the filesystem directly.
+
+---
+
 ## Resources
 
 ### Static Resources
@@ -641,6 +683,7 @@ Empty current.md (and no override) returns an error — there's nothing to archi
 | `airp://characters` | JSON array of imported character IDs |
 | `airp://presets` | JSON array of imported preset IDs |
 | `airp://users` | JSON array of imported user persona IDs (M_UP) |
+| `airp://plugins` | JSON array of plugin namespaces (M_PLUGIN_DATA) — directory names under `data/plugins/` |
 
 ### Resource Templates
 
@@ -656,6 +699,8 @@ Empty current.md (and no override) returns an error — there's nothing to archi
 | `airp://presets/{preset_id}/regex` | Same as `list_preset_regex_scripts` output — JSON array of regex script objects with `_filename`. |
 | `airp://users/{user_id}/persona` | M_UP base persona (元设定). Returns `null` if no persona imported. |
 | `airp://users/{user_id}/state/live` | M_UP drift overlay (变量设定). Returns `{}` if no state yet. Subscribable — `update_user_state` emits `notifications/resources/updated`. |
+| `airp://plugins/{plugin_name}/files` | M_PLUGIN_DATA — recursive JSON array of file relative paths in the plugin namespace. Returns `[]` if the namespace doesn't exist. |
+| `airp://plugins/{plugin_name}/data/{path}` | M_PLUGIN_DATA — UTF-8 file content with `?offset=N&limit=M` pagination (binary files: use `plugin_blob_read`). Subscribable — all three plugin write tools emit `notifications/resources/updated`. |
 
 ---
 

@@ -788,7 +788,7 @@ mod tests {
         // A2-2: assert against the live router count, not a hardcoded literal.
         let expected = crate::mcp::AirpMcpServer::tool_count() as u64;
         assert_eq!(v["mcp_tools_count"].as_u64().unwrap(), expected);
-        assert!(expected >= 33, "tool count regressed: {}", expected);
+        assert!(expected >= 39, "tool count regressed: {}", expected);
     }
 
     // AUDIT-10: /version requires no auth even when access_api_key is set

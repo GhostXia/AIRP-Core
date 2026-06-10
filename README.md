@@ -41,12 +41,12 @@
 
 | 项 | 值 |
 |---|---|
-| 测试 | **435** passing（lib 425 + integration 10），1 ignored |
+| 测试 | **447** passing（lib 437 + integration 10），1 ignored |
 | Clippy `--lib --bins -- -D warnings` | **0** warning |
-| MCP 工具 | 33（含 5 user persona + 4 P0 读 + delete_character + 4 scene CRUD + 3 volume ops，全部带 ToolAnnotations） |
-| MCP 资源 | 3 静态 + 9 模板 |
+| MCP 工具 | 39（含 5 user persona + 4 P0 读 + delete_character + 4 scene CRUD + 3 volume ops + 6 plugin data，全部带 ToolAnnotations） |
+| MCP 资源 | 4 静态 + 12 模板 |
 | MCP Prompts | 5 |
-| 已完成里程碑 | M0–M3 / M_CF / M_PR (PR-1~10) / M_MS / M_MCP / M_DX / M_LS / M_CA / **M_HARDEN (13/13)** |
+| 已完成里程碑 | M0–M3 / M_CF / M_PR (PR-1~10) / M_MS / M_MCP / M_DX / M_LS / M_CA / **M_HARDEN (13/13)** / **M_PLUGIN_DATA** |
 | 进行中 | — |
 
 ---
@@ -123,7 +123,7 @@ airp-core diagnose --character-id alice   # 聚焦单个角色
 
 ## MCP 工具表
 
-全部 33 个工具带 MCP 标准 `ToolAnnotations` 元数据，harness 可据此自动判断 "静默调 vs 需用户确认"。
+全部 39 个工具带 MCP 标准 `ToolAnnotations` 元数据，harness 可据此自动判断 "静默调 vs 需用户确认"。
 
 > 工具数以 `airp-core list-tools` / `AirpMcpServer::tool_count()` 为单一真相源。下表为常用子集示例，完整列表跑 `airp-core list-tools --format summary`。
 
@@ -162,6 +162,17 @@ airp-core diagnose --character-id alice   # 聚焦单个角色
 | `list_volumes` | 列出角色已封存卷 | readonly |
 | `read_volume` | 读取指定编号卷内容 | readonly |
 | `seal_volume` | 封存 current.md 为下一卷（纯文件操作，不调 LLM） | mutate / idempotent |
+| `plugin_kv_get` | 读插件 KV（plugins/{name}/{key}.json） | readonly |
+| `plugin_kv_set` | 写插件 KV（任意 JSON 值，零 schema） | mutate / idempotent |
+| `plugin_jsonl_append` | 插件 JSONL 追加（O(1) append） | append |
+| `plugin_jsonl_read` | 插件 JSONL 分页读取 | readonly |
+| `plugin_blob_write` | 插件任意文件写入（base64 / UTF-8 文本） | mutate / idempotent |
+| `plugin_blob_read` | 插件任意文件读取（上限 4 MiB） | readonly |
+
+**M_PLUGIN_DATA 零 schema 插件数据（戒律 4）：**
+- 任何语言的 MCP client 取一个 `plugin_name` 命名空间即可存取自己的数据 — 无 manifest、无注册、无 schema 强制
+- 数据落地 `data/plugins/{plugin_name}/`，完全任意文件树，AIRP 不解析语义
+- 三个写工具均推送 `airp://plugins/{name}/data/{path}` 资源变更通知 — 可把 AIRP 当零代码事件总线
 
 **User persona 双层模型（M_UP）：**
 - **元设定 / Base**（`users/{id}/persona.json`）：初始人设，可通过 `persona.lock` 封存为只读契约
@@ -303,10 +314,12 @@ data/
 │   ├── preset.md
 │   ├── regex/*.json              (PR-4 SillyTavern 正则脚本)
 │   └── analysis/                 (analyze_preset 产物)
-└── scenes/{scene_id}/            (M_MS 多角色场景)
-    ├── scene.json
-    ├── memory/                   (场景级独立卷系统)
-    └── world/lorebook.json       (场景级世界书)
+├── scenes/{scene_id}/            (M_MS 多角色场景)
+│   ├── scene.json
+│   ├── memory/                   (场景级独立卷系统)
+│   └── world/lorebook.json       (场景级世界书)
+└── plugins/{plugin_name}/        (M_PLUGIN_DATA 零 schema 插件数据)
+    └── {arbitrary_file_tree}     (完全任意结构，AIRP 不解析)
 ```
 
 ---
@@ -360,10 +373,10 @@ docker-compose up --build -d
 - M_LS：实时状态系统 + schema 推断
 - M_CA：Agent-driven 分析提示词
 - **M_HARDEN：13/13 子任务全部完成**（鉴权扩展到 /mcp/v1、SceneId newtype 全量 retrofit、tool side_effect 元数据、resource subscribe emit、idempotency keys、stdio 优雅停机、/version 端点、rmcp pin、卷封存/跨卷维护软提示、list-tools CLI、safe_resolve property test、RwLock 决策验证）
+- **M_PLUGIN_DATA：零 schema 三原语**（plugin_kv_get/set + plugin_jsonl_append/read + plugin_blob_write/read，6 工具 + 3 资源 URI + 订阅推送；戒律 4 开放接入落地）
 
 **预留里程碑：**
 - M_HELPERS（airp-mcp-helpers Rust crate，生态杠杆）
-- M_PLUGIN_DATA（零 schema 三原语 KV / JSONL / blob）
 - M_ARTIFACTS_UNIFIED（通用 artifact 工具组）
 - M_MODES（三档 prompt mode：compat / enhanced / bare）
 - M_REGEN / M_MEMORY_ENTRIES / M_AUDIT_LOG / M_WORLD_EVENTS

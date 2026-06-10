@@ -54,6 +54,13 @@ pub use tools::{
     ListVolumesRequest,
     LockUserPersonaRequest,
     PingRequest,
+    // M_PLUGIN_DATA: 零 schema 插件数据原语
+    PluginBlobReadRequest,
+    PluginBlobWriteRequest,
+    PluginJsonlAppendRequest,
+    PluginJsonlReadRequest,
+    PluginKvGetRequest,
+    PluginKvSetRequest,
     ReadVolumeRequest,
     RemovePresetRegexScriptRequest,
     RollbackMessagesRequest,
@@ -262,6 +269,26 @@ impl AirpMcpServer {
             }
             "seal_volume" => {
                 to_err!(self.seal_volume_impl(Parameters(parse_args!(SealVolumeRequest))))
+            }
+            // M_PLUGIN_DATA: 零 schema 插件数据原语
+            "plugin_kv_get" => {
+                to_err!(self.plugin_kv_get_impl(Parameters(parse_args!(PluginKvGetRequest))))
+            }
+            "plugin_kv_set" => {
+                to_err!(self.plugin_kv_set_impl(Parameters(parse_args!(PluginKvSetRequest))))
+            }
+            "plugin_jsonl_append" => {
+                to_err!(self
+                    .plugin_jsonl_append_impl(Parameters(parse_args!(PluginJsonlAppendRequest))))
+            }
+            "plugin_jsonl_read" => {
+                to_err!(self.plugin_jsonl_read_impl(Parameters(parse_args!(PluginJsonlReadRequest))))
+            }
+            "plugin_blob_write" => {
+                to_err!(self.plugin_blob_write_impl(Parameters(parse_args!(PluginBlobWriteRequest))))
+            }
+            "plugin_blob_read" => {
+                to_err!(self.plugin_blob_read_impl(Parameters(parse_args!(PluginBlobReadRequest))))
             }
             other => Err(format!(
                 "unknown tool: `{}` (use `airp-core list-tools --format summary` to enumerate)",
@@ -871,6 +898,125 @@ impl AirpMcpServer {
     fn seal_volume(&self, params: Parameters<SealVolumeRequest>) -> Result<String, ErrorData> {
         self.seal_volume_impl(params)
     }
+
+    // ── M_PLUGIN_DATA：零 schema 插件数据原语（戒律 4：开放接入）─────────────
+    // 任何语言的 MCP client 无需注册 / manifest / schema 即可存取自己的数据。
+
+    /// M_PLUGIN_DATA：读取插件 KV 值。
+    #[tool(
+        description = "读取插件 KV 值（plugins/{plugin_name}/{key}.json）。\
+                       任何第三方插件无需注册即可使用 — plugin_name 为插件自定命名空间。\
+                       文件不存在时返回 {present: false, value: null}（不报错）。\
+                       返回 {plugin_name, key, present, value} JSON。",
+        annotations(
+            title = "plugin_kv_get",
+            read_only_hint = true,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    fn plugin_kv_get(&self, params: Parameters<PluginKvGetRequest>) -> Result<String, ErrorData> {
+        self.plugin_kv_get_impl(params)
+    }
+
+    /// M_PLUGIN_DATA：写入插件 KV 值。
+    #[tool(
+        description = "写入插件 KV 值到 plugins/{plugin_name}/{key}.json。\
+                       value_json 为任意合法 JSON 值（对象/数组/标量）— AIRP 零 schema，不解析语义。\
+                       写后推送 airp://plugins/{plugin_name}/data/{key}.json 资源变更通知。\
+                       返回 {plugin_name, key, bytes_written} JSON。",
+        annotations(
+            title = "plugin_kv_set",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    fn plugin_kv_set(&self, params: Parameters<PluginKvSetRequest>) -> Result<String, ErrorData> {
+        self.plugin_kv_set_impl(params)
+    }
+
+    /// M_PLUGIN_DATA：向插件 JSONL 文件追加一行。
+    #[tool(
+        description = "向 plugins/{plugin_name}/{file} 追加一行 JSON（O(1) append，与 chat log 同一不变式）。\
+                       line_json 为任意合法 JSON 值，写入前压缩为单行。file 允许子目录（如 logs/events.jsonl）。\
+                       适合插件存事件流 / 时序数据 / 训练样本。\
+                       返回 {plugin_name, file, bytes_appended} JSON。",
+        annotations(
+            title = "plugin_jsonl_append",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
+    )]
+    fn plugin_jsonl_append(
+        &self,
+        params: Parameters<PluginJsonlAppendRequest>,
+    ) -> Result<String, ErrorData> {
+        self.plugin_jsonl_append_impl(params)
+    }
+
+    /// M_PLUGIN_DATA：读取插件 JSONL 文件行。
+    #[tool(
+        description = "读取 plugins/{plugin_name}/{file} 的 JSONL 行（offset 0-based，limit 默认 100 / 最大 1000）。\
+                       合法 JSON 行解析为值返回，非 JSON 行原样字符串返回（容错）。\
+                       文件不存在返回 total_lines=0 + 空数组（不报错）。\
+                       返回 {plugin_name, file, total_lines, offset, returned, lines} JSON。",
+        annotations(
+            title = "plugin_jsonl_read",
+            read_only_hint = true,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    fn plugin_jsonl_read(
+        &self,
+        params: Parameters<PluginJsonlReadRequest>,
+    ) -> Result<String, ErrorData> {
+        self.plugin_jsonl_read_impl(params)
+    }
+
+    /// M_PLUGIN_DATA：写入插件 blob 文件。
+    #[tool(
+        description = "写入任意文件到 plugins/{plugin_name}/{rel_path}（路径穿越防护）。\
+                       content_base64（二进制）/ content_text（UTF-8 文本，免 base64 开销）二选一。\
+                       返回 {plugin_name, rel_path, bytes_written, encoding} JSON。",
+        annotations(
+            title = "plugin_blob_write",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    fn plugin_blob_write(
+        &self,
+        params: Parameters<PluginBlobWriteRequest>,
+    ) -> Result<String, ErrorData> {
+        self.plugin_blob_write_impl(params)
+    }
+
+    /// M_PLUGIN_DATA：读取插件 blob 文件。
+    #[tool(
+        description = "读取 plugins/{plugin_name}/{rel_path} 文件内容。\
+                       默认返回 content_base64；as_text=true 时返回 content_text（UTF-8）。\
+                       单次上限 4 MiB（MCP 消息体保护）。\
+                       返回 {plugin_name, rel_path, size, content_base64|content_text} JSON。",
+        annotations(
+            title = "plugin_blob_read",
+            read_only_hint = true,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    fn plugin_blob_read(
+        &self,
+        params: Parameters<PluginBlobReadRequest>,
+    ) -> Result<String, ErrorData> {
+        self.plugin_blob_read_impl(params)
+    }
 }
 
 // ── MCP-3/4: ServerHandler（资源 + Prompts）────────────────────────────────
@@ -893,9 +1039,13 @@ impl ServerHandler for AirpMcpServer {
              / list_sessions / get_state_history \
              / write_preset_artifact / write_character_artifact \
              / list_preset_regex_scripts / remove_preset_regex_script / set_preset_regex_enabled. \
-             Resources: airp://characters (list), airp://presets (list), \
+             Plugin data (zero-schema, any third-party MCP client, no registration): \
+             plugin_kv_get / plugin_kv_set / plugin_jsonl_append / plugin_jsonl_read \
+             / plugin_blob_write / plugin_blob_read — namespace data/plugins/{plugin_name}/. \
+             Resources: airp://characters (list), airp://presets (list), airp://plugins (list), \
              templates: characters/{id}/card + lorebook + artifacts + history + state/live \
-             + presets/{id}/raw + presets/{id}/artifacts + presets/{id}/regex. \
+             + presets/{id}/raw + presets/{id}/artifacts + presets/{id}/regex \
+             + plugins/{name}/files + plugins/{name}/data/{path}. \
              Prompts: build_system_prompt / filter_text / state_update_instruction / analyze_character_card / analyze_preset. \
              RP workflow: import_card -> start_session -> [get_recent_context -> LLM -> append_message(user) -> LLM -> append_message(assistant) -> update_state] loop. \
              Preset workflow: import_preset -> read airp://presets/{id}/raw -> analyze -> write_preset_artifact -> check airp://presets/{id}/artifacts. \
@@ -931,6 +1081,11 @@ impl ServerHandler for AirpMcpServer {
                 "airp://users",
                 "AIRP Users",
                 "已导入用户人设列表（M_UP, JSON 数组）",
+            ),
+            mk(
+                "airp://plugins",
+                "AIRP Plugins",
+                "插件命名空间列表（M_PLUGIN_DATA, JSON 数组）。data/plugins/ 下的目录名。",
             ),
         ];
         Ok(ListResourcesResult {
@@ -1013,6 +1168,20 @@ impl ServerHandler for AirpMcpServer {
                 "用户变量设定（drift overlay）。文件不存在返回 {}。订阅可监听 update_user_state 变更。",
                 "application/json",
             ),
+            // M_PLUGIN_DATA: plugin data resources（戒律 4：开放接入）
+            mk(
+                "airp://plugins/{plugin_name}/files",
+                "AIRP Plugin Files",
+                "插件命名空间下所有文件的相对路径列表（递归，JSON 数组）。目录不存在返回 []。",
+                "application/json",
+            ),
+            mk(
+                "airp://plugins/{plugin_name}/data/{path}",
+                "AIRP Plugin Data",
+                "插件文件内容（UTF-8 文本，支持 ?offset=N&limit=M 分页；二进制文件请用 plugin_blob_read 工具）。\
+                 可订阅 — plugin_kv_set / plugin_jsonl_append / plugin_blob_write 写入后推送变更通知。",
+                "text/plain",
+            ),
         ];
         Ok(ListResourceTemplatesResult {
             resource_templates: templates,
@@ -1039,8 +1208,10 @@ impl ServerHandler for AirpMcpServer {
         context: RequestContext<RoleServer>,
     ) -> Result<(), ErrorData> {
         let uri = &request.uri;
-        // Only support state/live subscriptions for now
-        if uri.starts_with("airp://characters/") && uri.ends_with("/state/live") {
+        // state/live + M_PLUGIN_DATA plugin data URIs are subscribable
+        let subscribable = (uri.starts_with("airp://characters/") && uri.ends_with("/state/live"))
+            || uri.starts_with("airp://plugins/");
+        if subscribable {
             let mut subs = self.state_subs.lock().unwrap_or_else(|e| e.into_inner());
             subs.push((uri.clone(), context.peer.clone()));
             tracing::debug!(uri = %uri, "MCP-7: client subscribed to resource");

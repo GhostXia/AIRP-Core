@@ -52,8 +52,8 @@ fn test_mcp1_get_info_has_tools_capability() {
 fn test_a2_2_tool_count_matches_docs() {
     assert_eq!(
         AirpMcpServer::tool_count(),
-        33,
-        "tool count changed — update README / CLAUDE.md / docs/mcp.md (all say 33) and this assert"
+        39,
+        "tool count changed — update README / CLAUDE.md / docs/mcp.md (all say 39) and this assert"
     );
 }
 
@@ -2776,4 +2776,353 @@ async fn test_audit_13_emit_filters_by_uri() {
     // Verify subs registry is still in a usable state.
     let guard = s.state_subs.lock().unwrap();
     assert_eq!(guard.len(), 0);
+}
+
+// ── M_PLUGIN_DATA: 零 schema 插件数据原语（戒律 4）──────────────────────────
+
+#[test]
+fn test_plugin_kv_roundtrip() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+
+    // get before set → present=false, value=null（不报错）
+    let out = s
+        .plugin_kv_get(Parameters(PluginKvGetRequest {
+            plugin_name: "dice-roller".to_string(),
+            key: "config".to_string(),
+        }))
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v["present"], false);
+    assert!(v["value"].is_null());
+
+    // set arbitrary JSON value (object)
+    let out = s
+        .plugin_kv_set(Parameters(PluginKvSetRequest {
+            plugin_name: "dice-roller".to_string(),
+            key: "config".to_string(),
+            value_json: r#"{"sides": 20, "advantage": true}"#.to_string(),
+            idempotency_key: None,
+        }))
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v["plugin_name"], "dice-roller");
+    assert!(tmp
+        .path()
+        .join("plugins")
+        .join("dice-roller")
+        .join("config.json")
+        .exists());
+
+    // get after set → present=true, value 解析回对象
+    let out = s
+        .plugin_kv_get(Parameters(PluginKvGetRequest {
+            plugin_name: "dice-roller".to_string(),
+            key: "config".to_string(),
+        }))
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v["present"], true);
+    assert_eq!(v["value"]["sides"], 20);
+}
+
+#[test]
+fn test_plugin_kv_set_scalar_value_allowed() {
+    // 零 schema：标量也是合法 JSON 值
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    let out = s
+        .plugin_kv_set(Parameters(PluginKvSetRequest {
+            plugin_name: "p".to_string(),
+            key: "counter".to_string(),
+            value_json: "42".to_string(),
+            idempotency_key: None,
+        }))
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v["bytes_written"], 2);
+}
+
+#[test]
+fn test_plugin_kv_rejects_invalid_json_and_bad_names() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    // 非法 JSON
+    assert!(s
+        .plugin_kv_set(Parameters(PluginKvSetRequest {
+            plugin_name: "p".to_string(),
+            key: "k".to_string(),
+            value_json: "not json".to_string(),
+            idempotency_key: None,
+        }))
+        .is_err());
+    // plugin_name 路径穿越
+    assert!(s
+        .plugin_kv_set(Parameters(PluginKvSetRequest {
+            plugin_name: "../escape".to_string(),
+            key: "k".to_string(),
+            value_json: "{}".to_string(),
+            idempotency_key: None,
+        }))
+        .is_err());
+    // key 含路径分隔符
+    assert!(s
+        .plugin_kv_get(Parameters(PluginKvGetRequest {
+            plugin_name: "p".to_string(),
+            key: "a/b".to_string(),
+        }))
+        .is_err());
+}
+
+#[test]
+fn test_plugin_jsonl_append_and_read() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+
+    // 读不存在的文件 → 空结果不报错
+    let out = s
+        .plugin_jsonl_read(Parameters(PluginJsonlReadRequest {
+            plugin_name: "tracker".to_string(),
+            file: "events.jsonl".to_string(),
+            offset: 0,
+            limit: 100,
+        }))
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v["total_lines"], 0);
+
+    // 追加 3 行（含多行格式 JSON → 压缩为单行）
+    for i in 0..3 {
+        s.plugin_jsonl_append(Parameters(PluginJsonlAppendRequest {
+            plugin_name: "tracker".to_string(),
+            file: "events.jsonl".to_string(),
+            line_json: format!("{{\n  \"event\": {}\n}}", i),
+            idempotency_key: None,
+        }))
+        .unwrap();
+    }
+
+    // 文件确实是一行一条
+    let raw = fs::read_to_string(
+        tmp.path()
+            .join("plugins")
+            .join("tracker")
+            .join("events.jsonl"),
+    )
+    .unwrap();
+    assert_eq!(raw.lines().count(), 3);
+
+    // offset/limit 分页
+    let out = s
+        .plugin_jsonl_read(Parameters(PluginJsonlReadRequest {
+            plugin_name: "tracker".to_string(),
+            file: "events.jsonl".to_string(),
+            offset: 1,
+            limit: 1,
+        }))
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v["total_lines"], 3);
+    assert_eq!(v["returned"], 1);
+    assert_eq!(v["lines"][0]["event"], 1);
+}
+
+#[test]
+fn test_plugin_jsonl_subdirectory_and_traversal_guard() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    // 子目录合法
+    s.plugin_jsonl_append(Parameters(PluginJsonlAppendRequest {
+        plugin_name: "p".to_string(),
+        file: "logs/2026/run.jsonl".to_string(),
+        line_json: "{\"ok\":true}".to_string(),
+        idempotency_key: None,
+    }))
+    .unwrap();
+    assert!(tmp
+        .path()
+        .join("plugins")
+        .join("p")
+        .join("logs")
+        .join("2026")
+        .join("run.jsonl")
+        .exists());
+    // `..` 穿越拒绝
+    assert!(s
+        .plugin_jsonl_append(Parameters(PluginJsonlAppendRequest {
+            plugin_name: "p".to_string(),
+            file: "../../characters/x.jsonl".to_string(),
+            line_json: "{}".to_string(),
+            idempotency_key: None,
+        }))
+        .is_err());
+}
+
+#[test]
+fn test_plugin_blob_write_read_text_and_base64() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+
+    // 文本写入
+    let out = s
+        .plugin_blob_write(Parameters(PluginBlobWriteRequest {
+            plugin_name: "map-maker".to_string(),
+            rel_path: "notes/readme.md".to_string(),
+            content_base64: None,
+            content_text: Some("# 地图插件\n你好".to_string()),
+            idempotency_key: None,
+        }))
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v["encoding"], "text");
+
+    // as_text 读回
+    let out = s
+        .plugin_blob_read(Parameters(PluginBlobReadRequest {
+            plugin_name: "map-maker".to_string(),
+            rel_path: "notes/readme.md".to_string(),
+            as_text: true,
+        }))
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v["content_text"], "# 地图插件\n你好");
+
+    // base64 写入二进制（PNG 头），base64 读回
+    use base64::Engine;
+    let bin: Vec<u8> = vec![0x89, 0x50, 0x4E, 0x47, 0x00, 0xFF];
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bin);
+    s.plugin_blob_write(Parameters(PluginBlobWriteRequest {
+        plugin_name: "map-maker".to_string(),
+        rel_path: "assets/tile.png".to_string(),
+        content_base64: Some(b64.clone()),
+        content_text: None,
+        idempotency_key: None,
+    }))
+    .unwrap();
+    let out = s
+        .plugin_blob_read(Parameters(PluginBlobReadRequest {
+            plugin_name: "map-maker".to_string(),
+            rel_path: "assets/tile.png".to_string(),
+            as_text: false,
+        }))
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v["content_base64"], b64);
+    assert_eq!(v["size"], 6);
+
+    // 二进制文件 as_text=true → 报错
+    assert!(s
+        .plugin_blob_read(Parameters(PluginBlobReadRequest {
+            plugin_name: "map-maker".to_string(),
+            rel_path: "assets/tile.png".to_string(),
+            as_text: true,
+        }))
+        .is_err());
+}
+
+#[test]
+fn test_plugin_blob_write_requires_exactly_one_content() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    // 两个都给 → 错
+    assert!(s
+        .plugin_blob_write(Parameters(PluginBlobWriteRequest {
+            plugin_name: "p".to_string(),
+            rel_path: "f.txt".to_string(),
+            content_base64: Some("aGk=".to_string()),
+            content_text: Some("hi".to_string()),
+            idempotency_key: None,
+        }))
+        .is_err());
+    // 两个都不给 → 错
+    assert!(s
+        .plugin_blob_write(Parameters(PluginBlobWriteRequest {
+            plugin_name: "p".to_string(),
+            rel_path: "f.txt".to_string(),
+            content_base64: None,
+            content_text: None,
+            idempotency_key: None,
+        }))
+        .is_err());
+}
+
+#[test]
+fn test_plugin_data_idempotency_keys() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    // 同 key 重复 append 只写一行
+    for _ in 0..3 {
+        s.plugin_jsonl_append(Parameters(PluginJsonlAppendRequest {
+            plugin_name: "p".to_string(),
+            file: "log.jsonl".to_string(),
+            line_json: "{\"n\":1}".to_string(),
+            idempotency_key: Some("retry-abc".to_string()),
+        }))
+        .unwrap();
+    }
+    let raw = fs::read_to_string(tmp.path().join("plugins").join("p").join("log.jsonl")).unwrap();
+    assert_eq!(raw.lines().count(), 1, "idempotency key 必须防重复 append");
+}
+
+#[test]
+fn test_plugin_resources_list_files_and_data() {
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    s.plugin_kv_set(Parameters(PluginKvSetRequest {
+        plugin_name: "stats".to_string(),
+        key: "summary".to_string(),
+        value_json: r#"{"runs": 7}"#.to_string(),
+        idempotency_key: None,
+    }))
+    .unwrap();
+
+    // airp://plugins → 命名空间列表
+    let contents = s.dispatch_resource("airp://plugins").unwrap();
+    let ResourceContents::TextResourceContents { text, .. } = &contents[0] else {
+        panic!("expected text contents");
+    };
+    let names: Vec<String> = serde_json::from_str(text).unwrap();
+    assert_eq!(names, vec!["stats"]);
+
+    // airp://plugins/stats/files → 文件列表
+    let contents = s.dispatch_resource("airp://plugins/stats/files").unwrap();
+    let ResourceContents::TextResourceContents { text, .. } = &contents[0] else {
+        panic!("expected text contents");
+    };
+    let files: Vec<String> = serde_json::from_str(text).unwrap();
+    assert_eq!(files, vec!["summary.json"]);
+
+    // airp://plugins/stats/data/summary.json → 文件内容
+    let contents = s
+        .dispatch_resource("airp://plugins/stats/data/summary.json")
+        .unwrap();
+    let ResourceContents::TextResourceContents { text, .. } = &contents[0] else {
+        panic!("expected text contents");
+    };
+    assert_eq!(text, r#"{"runs": 7}"#);
+
+    // 穿越拒绝
+    assert!(s
+        .dispatch_resource("airp://plugins/stats/data/../../settings.json")
+        .is_err());
+}
+
+#[test]
+fn test_plugin_data_via_call_tool_sync() {
+    // CLI 单发路径（airp-core tool plugin_kv_set …）也要可达
+    let tmp = tempdir().unwrap();
+    let s = AirpMcpServer::new(tmp.path().to_path_buf());
+    let out = s
+        .call_tool_sync(
+            "plugin_kv_set",
+            r#"{"plugin_name":"cli-test","key":"k","value_json":"{\"a\":1}"}"#,
+        )
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v["plugin_name"], "cli-test");
+    let out = s
+        .call_tool_sync("plugin_kv_get", r#"{"plugin_name":"cli-test","key":"k"}"#)
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v["value"]["a"], 1);
 }
