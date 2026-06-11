@@ -90,6 +90,19 @@ enum Commands {
         #[arg(long)]
         data_dir: Option<PathBuf>,
     },
+    /// M_FEDERATION FED-3：进程边界插件 Hub —— 发现 / 调用外部插件子进程。
+    ///
+    /// 插件在 data/plugins/{name}/hub.json 声明 command/args；Hub spawn 子进程并
+    /// 通过 stdin/stdout 收发换行分隔 JSON-RPC，Core 进程内零执行、崩溃隔离。
+    Hub {
+        #[command(subcommand)]
+        action: HubCommand,
+    },
+    /// (内部) FED-3 参考 echo 插件：从 stdin 读 JSON-RPC 逐行应答。
+    ///
+    /// 作为 polyglot 进程边界插件的 Rust 参考实现 + 集成测试目标，不面向终端用户。
+    #[command(name = "hub-echo", hide = true)]
+    HubEcho,
     /// 在终端控制台直接运行单次流式过滤
     Run {
         /// 角色卡：PNG 路径 / JSON 文件路径 / `{...}` 内联 JSON / data/characters/{id} 文件夹名
@@ -114,6 +127,35 @@ enum Commands {
     },
 }
 
+/// FED-3 Hub 子命令。
+#[derive(Subcommand, Debug, Clone)]
+enum HubCommand {
+    /// 列出 data/plugins/ 下所有带 hub.json 的可执行插件。
+    List {
+        /// 数据根目录，默认沿用 AIRP_DATA_DIR 或 ./data。
+        #[arg(long)]
+        data_dir: Option<PathBuf>,
+    },
+    /// 调用插件单个方法：spawn 子进程 → 单次 JSON-RPC 往返 → 打印 result。
+    ///
+    /// 例：airp-core hub call echo echo --json '{"hello":"world"}'
+    Call {
+        /// 插件名（= data/plugins/{name}/ 目录名）。
+        name: String,
+        /// 方法名（语义由插件定义，如 initialize / echo）。
+        method: String,
+        /// 方法参数 JSON 对象字符串；缺省 `{}`。
+        #[arg(long, default_value = "{}")]
+        json: String,
+        /// 数据根目录，默认沿用 AIRP_DATA_DIR 或 ./data。
+        #[arg(long)]
+        data_dir: Option<PathBuf>,
+        /// 超时秒数（插件未在此时限内响应则强制终止）。
+        #[arg(long, default_value_t = 30)]
+        timeout_secs: u64,
+    },
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // M1.9 / M2 前置：初始化 tracing subscriber，让 daemon 里 warn/error/debug 可见。
@@ -129,6 +171,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 1. 解析命令行参数
     let cli = Cli::parse();
+
+    // FED-3: hub-echo 是被 Hub spawn 的插件子进程，必须在 config / data 目录
+    // 初始化之前早返回 —— 否则会在插件 cwd 里误建 config.json / data/。
+    if let Commands::HubEcho = cli.command {
+        return airp_core::hub::run_echo_plugin()
+            .map_err(|e| -> Box<dyn std::error::Error> { Box::new(e) });
+    }
 
     // 2. 配置三层合并（M4.3）：
     //    layer 1 = AppConfig::default() （程序默认）
@@ -438,6 +487,50 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             chat_pipeline::run_pipeline_to_stdout(pipeline).await?;
         }
+        Commands::Hub { action } => match action {
+            HubCommand::List { data_dir } => {
+                let root = data_dir
+                    .or_else(|| std::env::var("AIRP_DATA_DIR").ok().map(PathBuf::from))
+                    .unwrap_or_else(|| PathBuf::from("data"));
+                let plugins = airp_core::hub::discover(&root);
+                println!(
+                    "AIRP Hub plugins — {} total (data/plugins/*/hub.json)",
+                    plugins.len()
+                );
+                for p in &plugins {
+                    println!(
+                        "  {:<24} command={} args={:?}",
+                        p.name, p.manifest.command, p.manifest.args
+                    );
+                }
+            }
+            HubCommand::Call {
+                name,
+                method,
+                json,
+                data_dir,
+                timeout_secs,
+            } => {
+                let root = data_dir
+                    .or_else(|| std::env::var("AIRP_DATA_DIR").ok().map(PathBuf::from))
+                    .unwrap_or_else(|| PathBuf::from("data"));
+                let params: serde_json::Value = serde_json::from_str(&json).map_err(
+                    |e| -> Box<dyn std::error::Error> {
+                        Box::new(AirpError::BadRequest(format!("--json 非合法 JSON: {}", e)))
+                    },
+                )?;
+                let result = airp_core::hub::invoke(
+                    &root,
+                    &name,
+                    &method,
+                    Some(params),
+                    std::time::Duration::from_secs(timeout_secs),
+                )
+                .map_err(|e: AirpError| -> Box<dyn std::error::Error> { Box::new(e) })?;
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            }
+        },
+        Commands::HubEcho => unreachable!("hub-echo 已在 config 加载前早返回"),
     }
 
     Ok(())

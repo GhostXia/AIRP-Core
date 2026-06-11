@@ -22,6 +22,7 @@ pub mod daemon;
 pub mod data_dir;
 pub mod diagnose;
 pub mod error;
+pub mod hub;
 pub mod mcp;
 pub mod orchestrator;
 pub mod png_parser;
