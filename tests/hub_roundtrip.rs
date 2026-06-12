@@ -147,6 +147,57 @@ fn hub_crash_isolation_bad_command() {
 }
 
 #[test]
+fn hub_call_rejects_incompatible_protocol() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    // 插件声明一个此 Hub 不支持的协议版本；command 指向参考 echo 插件，
+    // 但协商在 spawn 之前生效，故根本不会启动子进程。
+    let mut manifest = echo_manifest();
+    manifest["protocol"] = serde_json::json!("fed-99");
+    write_manifest(root, "future", &manifest);
+
+    let out = Command::new(bin())
+        .args([
+            "hub",
+            "call",
+            "future",
+            "echo",
+            "--data-dir",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!out.status.success(), "不兼容协议应返回非零退出");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("fed-99") && stderr.contains("不被此 Hub 支持"),
+        "stderr 应说明协议不兼容: {}",
+        stderr
+    );
+}
+
+#[test]
+fn hub_list_shows_protocol_compat() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    write_manifest(root, "echo", &echo_manifest()); // 未声明 protocol → legacy OK
+    let mut bad = echo_manifest();
+    bad["protocol"] = serde_json::json!("fed-99");
+    write_manifest(root, "future", &bad);
+
+    let out = Command::new(bin())
+        .args(["hub", "list", "--data-dir", root.to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("protocol=fed-1 OK"), "legacy 插件应显示兼容: {}", stdout);
+    assert!(stdout.contains("INCOMPAT"), "未来协议插件应显示不兼容: {}", stdout);
+}
+
+#[test]
 fn hub_list_finds_executable_skips_dataonly() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();

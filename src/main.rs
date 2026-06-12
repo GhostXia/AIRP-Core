@@ -498,9 +498,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     plugins.len()
                 );
                 for p in &plugins {
+                    // FED-4: 展示协议协商结果，让用户一眼看出兼容性。
+                    let compat = match airp_core::hub::negotiate_protocol(
+                        p.manifest.protocol.as_deref(),
+                    ) {
+                        Ok(v) => format!("protocol={} OK", v),
+                        Err(e) => format!("INCOMPAT ({})", e),
+                    };
                     println!(
-                        "  {:<24} command={} args={:?}",
-                        p.name, p.manifest.command, p.manifest.args
+                        "  {:<24} command={} args={:?} [{}]",
+                        p.name, p.manifest.command, p.manifest.args, compat
                     );
                 }
             }

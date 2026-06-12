@@ -26,8 +26,15 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-/// 线协议版本。Hub 与插件用它协商兼容性（FED-4 占位：当前仅声明）。
+/// Hub 当前线协议版本（= 默认 / 最新）。插件未声明 `protocol` 时按此回退。
 pub const HUB_PROTOCOL_VERSION: &str = "fed-1";
+
+/// FED-4：此 Hub 能服务的全部协议版本（含历史版本，**向后兼容承诺**）。
+///
+/// 抗淘汰核心：Hub 升级 / 换语言移植后，只要旧版本仍留在此列表，旧插件
+/// （声明旧版本或不声明）继续工作、零改动。新增版本 = 往此列表追加，**不删
+/// 旧版本**，除非确实弃用某版本（弃用即破坏兼容，须显式决策）。
+pub const SUPPORTED_PROTOCOLS: &[&str] = &["fed-1"];
 
 /// 插件启动清单文件名。
 pub const HUB_MANIFEST: &str = "hub.json";
@@ -113,6 +120,12 @@ pub struct PluginManifest {
     /// 工作目录，相对 `data/plugins/{name}/`，越界拒绝；缺省即插件目录本身。
     #[serde(default)]
     pub cwd: Option<String>,
+    /// FED-4：插件声明它说的线协议版本（如 `"fed-1"`）。
+    ///
+    /// 缺省 = 不声明 = legacy 插件，Hub 按 [`HUB_PROTOCOL_VERSION`] 兼容服务。
+    /// 声明的版本若不在 [`SUPPORTED_PROTOCOLS`] 内，spawn **之前**即拒绝。
+    #[serde(default)]
+    pub protocol: Option<String>,
     /// 可选自述（仅展示，Hub 不解析）。
     #[serde(default)]
     pub description: Option<String>,
@@ -184,6 +197,29 @@ fn load_manifest_at(path: &Path) -> AirpResult<PluginManifest> {
     Ok(manifest)
 }
 
+/// FED-4：协商插件声明的协议版本，返回最终生效版本。
+///
+/// - `None`（插件未声明）→ legacy，回退 [`HUB_PROTOCOL_VERSION`]，**兼容服务**。
+/// - `Some(v)` 且 `v ∈` [`SUPPORTED_PROTOCOLS`] → 接受，返回该静态版本串。
+/// - `Some(v)` 不被支持 → [`AirpError::Config`]（Hub 太旧 / 插件太新）。
+///
+/// 调用点在 spawn **之前**，故不兼容插件不会浪费一个子进程。
+pub fn negotiate_protocol(declared: Option<&str>) -> AirpResult<&'static str> {
+    match declared {
+        None => Ok(HUB_PROTOCOL_VERSION),
+        Some(v) => SUPPORTED_PROTOCOLS
+            .iter()
+            .copied()
+            .find(|s| *s == v)
+            .ok_or_else(|| {
+                AirpError::Config(format!(
+                    "插件声明协议 `{}` 不被此 Hub 支持（支持: {:?}）",
+                    v, SUPPORTED_PROTOCOLS
+                ))
+            }),
+    }
+}
+
 /// 调用插件单个方法：spawn 子进程 → 写一行请求 → 读一行响应 → 终止子进程。
 ///
 /// **崩溃 / 卡死隔离**：
@@ -200,6 +236,8 @@ pub fn invoke(
     timeout: Duration,
 ) -> AirpResult<Value> {
     let manifest = load_manifest(data_root, name)?;
+    // FED-4: 协议协商在 spawn 之前 —— 不兼容插件直接拒，不浪费子进程。
+    negotiate_protocol(manifest.protocol.as_deref())?;
     let plugin_dir = data_root.join("plugins").join(name);
     // cwd 限定在插件目录子树内（safe_resolve_for_write 拒绝 .. / 绝对路径）。
     let cwd = match &manifest.cwd {
@@ -417,6 +455,43 @@ mod tests {
     fn discover_missing_plugins_dir_empty() {
         let tmp = tempdir().unwrap();
         assert!(discover(tmp.path()).is_empty());
+    }
+
+    #[test]
+    fn negotiate_legacy_undeclared_defaults() {
+        // 未声明 = legacy 插件，回退当前版本，兼容服务。
+        assert_eq!(negotiate_protocol(None).unwrap(), HUB_PROTOCOL_VERSION);
+    }
+
+    #[test]
+    fn negotiate_supported_version_ok() {
+        assert_eq!(negotiate_protocol(Some("fed-1")).unwrap(), "fed-1");
+    }
+
+    #[test]
+    fn negotiate_unsupported_version_rejected() {
+        assert!(matches!(
+            negotiate_protocol(Some("fed-99")),
+            Err(AirpError::Config(_))
+        ));
+    }
+
+    #[test]
+    fn invoke_refuses_incompatible_before_spawn() {
+        // command 指向一个绝不存在的程序：若协商在 spawn 之前生效，
+        // 返回的应是协议错误（Config），而非 spawn 失败（Internal）。
+        let tmp = tempdir().unwrap();
+        write_manifest(
+            tmp.path(),
+            "p",
+            r#"{"command":"this_does_not_exist_zzz","protocol":"fed-99"}"#,
+        );
+        let err = invoke(tmp.path(), "p", "echo", None, DEFAULT_TIMEOUT).unwrap_err();
+        assert!(
+            matches!(err, AirpError::Config(_)),
+            "应在 spawn 前因协议不兼容被拒，实得: {:?}",
+            err
+        );
     }
 
     #[test]
