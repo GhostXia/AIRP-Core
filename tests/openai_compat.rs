@@ -88,7 +88,6 @@ async fn setup_with_quota(
                 max_tokens_per_day: 0,
             },
         }),
-        state_subs: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
     });
     (state, tmp)
 }
@@ -116,7 +115,6 @@ async fn setup(upstream_url: &str) -> (Arc<DaemonState>, tempfile::TempDir) {
             engine: BackendEngine::default(),
             quota: QuotaConfig::default(),
         }),
-        state_subs: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
     });
     (state, tmp)
 }

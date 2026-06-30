@@ -83,7 +83,6 @@ mod tests {
                 engine: BackendEngine::default(),
                 quota: crate::quota::QuotaConfig::default(),
             }),
-            state_subs: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
         })
     }
 
@@ -302,7 +301,7 @@ mod tests_mls3 {
     async fn test_mls3_history_appended_on_first_call() {
         let tmp = tempdir().unwrap();
         let state = serde_json::json!({"hp": 80, "location": "dock"});
-        persist_live_state(tmp.path(), "bob", &state, None).await;
+        persist_live_state(tmp.path(), "bob", &state).await;
 
         let history_path = crate::data_dir::char_state_history_path(tmp.path(), "bob");
         assert!(history_path.exists(), "history.jsonl should exist");
@@ -330,9 +329,9 @@ mod tests_mls3 {
         let s2 = serde_json::json!({"hp": 50});
         let s3 = serde_json::json!({"hp": 20});
 
-        persist_live_state(tmp.path(), "carol", &s1, None).await;
-        persist_live_state(tmp.path(), "carol", &s2, None).await;
-        persist_live_state(tmp.path(), "carol", &s3, None).await;
+        persist_live_state(tmp.path(), "carol", &s1).await;
+        persist_live_state(tmp.path(), "carol", &s2).await;
+        persist_live_state(tmp.path(), "carol", &s3).await;
 
         let history_path = crate::data_dir::char_state_history_path(tmp.path(), "carol");
         let file = std::fs::File::open(&history_path).unwrap();
@@ -352,8 +351,8 @@ mod tests_mls3 {
         let s1 = serde_json::json!({"turn": 1});
         let s2 = serde_json::json!({"turn": 2});
 
-        persist_live_state(tmp.path(), "dave", &s1, None).await;
-        persist_live_state(tmp.path(), "dave", &s2, None).await;
+        persist_live_state(tmp.path(), "dave", &s1).await;
+        persist_live_state(tmp.path(), "dave", &s2).await;
 
         let state_dir = crate::data_dir::char_state_dir(tmp.path(), "dave");
         let live_json: serde_json::Value =
@@ -395,7 +394,7 @@ mod tests_mls9 {
         assert_eq!(state_opt.as_ref().unwrap()["hp"], 90);
 
         let state = state_opt.unwrap();
-        persist_live_state(tmp.path(), "eve", &state, None).await;
+        persist_live_state(tmp.path(), "eve", &state).await;
 
         // Inject into prompt and verify presence
         let mut prompt = String::new();
@@ -415,7 +414,7 @@ mod tests_mls9 {
     async fn test_ls9_empty_state_object_persisted() {
         let tmp = tempdir().unwrap();
         let state = serde_json::json!({});
-        persist_live_state(tmp.path(), "frank", &state, None).await;
+        persist_live_state(tmp.path(), "frank", &state).await;
 
         let live_path = char_state_dir(tmp.path(), "frank").join("live.json");
         assert!(
@@ -464,16 +463,6 @@ mod tests_mls9 {
         );
     }
 
-    /// `state_update_prompt()` contains the `<state>` instruction.
-    #[test]
-    fn test_ls9_state_update_prompt_content() {
-        let p = crate::mcp::state_update_prompt_for_test();
-        assert!(
-            p.contains("<state>"),
-            "state_update_prompt should contain <state> tag"
-        );
-        assert!(p.contains("hp"), "should mention example hp field");
-    }
 }
 
 // ── MS-6 tests: scene pipeline branch ────────────────────────────────────────
@@ -503,7 +492,6 @@ mod tests_ms6 {
                 engine: BackendEngine::default(),
                 quota: crate::quota::QuotaConfig::default(),
             }),
-            state_subs: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
         })
     }
 
@@ -636,7 +624,6 @@ mod tests_dx1 {
                 engine: BackendEngine::default(),
                 quota: crate::quota::QuotaConfig::default(),
             }),
-            state_subs: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
         })
     }
 

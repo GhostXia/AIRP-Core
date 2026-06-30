@@ -3,7 +3,6 @@
 pub(crate) mod handlers;
 pub mod types;
 
-pub(crate) use handlers::import_card_to_disk;
 pub use types::{
     ChatCompletionRequest, ChatResponseChunk, HistoryQuery, RegenRequest, RollbackRequest,
     UserProfile,
@@ -15,7 +14,7 @@ use axum::{
     extract::{ConnectInfo, DefaultBodyLimit},
     http::{header, Request, StatusCode},
     middleware::{self, Next},
-    response::{Html, IntoResponse, Response},
+    response::{IntoResponse, Response},
     routing::{get, post},
     Router,
 };
@@ -42,8 +41,6 @@ pub struct DaemonState {
     pub http_client: reqwest::Client,
     /// M4.4：热重载窗口。`GET /v1/settings` 读、`POST /v1/settings` 写。
     pub config: std::sync::RwLock<MutableConfig>,
-    /// MCP-7：resource subscription registry，与 MCP HTTP transport 共享同一 Arc。
-    pub state_subs: crate::mcp::StateSubs,
 }
 
 /// M4.4：可在运行时热重载的配置子集。
@@ -238,8 +235,6 @@ pub fn create_router(state: Arc<DaemonState>) -> Router {
             get(list_sessions_endpoint).post(create_session_endpoint),
         )
         .route("/v1/settings", get(get_settings).post(update_settings))
-        .route("/v1/sync/manifest", get(crate::sync::sync_manifest_handler))
-        .route("/v1/sync/blob/:hash", get(crate::sync::sync_blob_handler))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
@@ -249,39 +244,21 @@ pub fn create_router(state: Arc<DaemonState>) -> Router {
             config: governor_conf.clone(),
         });
 
-    // AUDIT-1: `/mcp/v1` previously bypassed `auth_middleware`. With
-    // AIRP_ACCESS_KEY unset, the middleware is a no-op; with it set, all MCP
-    // HTTP requests must carry `Authorization: Bearer <key>` — matching the
-    // protection level of /v1/* and stopping local cross-user MCP hijacking.
-    // A2-7: also covered by the shared governor (import/sync/mcp now throttled).
-    let mcp_routes = crate::mcp::mcp_http_router(state.data_root.clone(), state.state_subs.clone())
-        .route_layer(middleware::from_fn_with_state(
-            state.clone(),
-            auth_middleware,
-        ))
-        .layer(GovernorLayer {
-            config: governor_conf.clone(),
-        });
-
     Router::new()
-        .route("/", get(|| async { Html(include_str!("../index.html")) }))
         .route("/version", get(version_handler))
         .merge(v1_routes)
-        .merge(mcp_routes)
         .layer(cors)
         .with_state(state)
 }
 
 /// AUDIT-10: Diagnostic version endpoint for harness / monitoring tools.
 ///
-/// Returns crate name, version, and MCP tool count. Unauthenticated by design —
-/// safe to expose since contents are static build metadata.
+/// Returns crate name and version. Unauthenticated by design — safe to expose
+/// since contents are static build metadata.
 async fn version_handler() -> axum::Json<VersionInfo> {
     axum::Json(VersionInfo {
         name: env!("CARGO_PKG_NAME"),
         version: env!("CARGO_PKG_VERSION"),
-        // A2-2: derive from the tool router so this never drifts from reality.
-        mcp_tools_count: crate::mcp::AirpMcpServer::tool_count() as u32,
     })
 }
 
@@ -289,7 +266,6 @@ async fn version_handler() -> axum::Json<VersionInfo> {
 struct VersionInfo {
     name: &'static str,
     version: &'static str,
-    mcp_tools_count: u32,
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -315,7 +291,6 @@ mod tests {
                 engine: crate::adapter::BackendEngine::default(),
                 quota: crate::quota::QuotaConfig::default(),
             }),
-            state_subs: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
         })
     }
 
@@ -437,7 +412,6 @@ mod tests {
                 engine: crate::adapter::BackendEngine::default(),
                 quota: crate::quota::QuotaConfig::default(),
             }),
-            state_subs: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
         });
         (state, tmp)
     }
@@ -785,10 +759,6 @@ mod tests {
         let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(v["name"], "airp-core");
         assert!(v["version"].as_str().unwrap().len() > 0);
-        // A2-2: assert against the live router count, not a hardcoded literal.
-        let expected = crate::mcp::AirpMcpServer::tool_count() as u64;
-        assert_eq!(v["mcp_tools_count"].as_u64().unwrap(), expected);
-        assert!(expected >= 39, "tool count regressed: {}", expected);
     }
 
     // AUDIT-10: /version requires no auth even when access_api_key is set
@@ -806,54 +776,6 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
-    }
-
-    // AUDIT-1: /mcp/v1 rejects unauthenticated requests when AIRP_ACCESS_KEY is set
-    #[tokio::test]
-    async fn test_audit_1_mcp_v1_rejects_no_auth_when_key_set() {
-        let state = make_state_with_key(Some("secret-key"));
-        let app = create_router(state);
-        let resp = app
-            .oneshot(
-                axum::http::Request::builder()
-                    .method("POST")
-                    .uri("/mcp/v1")
-                    .body(Body::from(r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(
-            resp.status(),
-            StatusCode::UNAUTHORIZED,
-            "/mcp/v1 should require auth when AIRP_ACCESS_KEY is set"
-        );
-    }
-
-    // AUDIT-1: /mcp/v1 passes through when no key is configured (back-compat)
-    #[tokio::test]
-    async fn test_audit_1_mcp_v1_open_when_no_key() {
-        let (state, _tmp) = make_state_no_key();
-        let app = create_router(state);
-        let resp = app
-            .oneshot(
-                axum::http::Request::builder()
-                    .method("POST")
-                    .uri("/mcp/v1")
-                    .body(Body::from(r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        // Without auth key, request passes through middleware. The rmcp
-        // handler itself may return any status (200/400/406 depending on
-        // headers), but it must NOT be 401 — that would prove the middleware
-        // is blocking.
-        assert_ne!(
-            resp.status(),
-            StatusCode::UNAUTHORIZED,
-            "/mcp/v1 should not require auth when AIRP_ACCESS_KEY is unset"
-        );
     }
 }
 
