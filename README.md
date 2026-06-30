@@ -1,41 +1,51 @@
 # AIRP-Core
 
-> **Pure Agent-side streaming RP backend.** Self-invokes the LLM, assembles
-> character / lorebook / preset / volume context, streams the response through
-> an FSM filter + XML unpacker, and persists chat log + state + sealed volumes.
+> **独立、开源、乐高式的 Agent 后端。** 自调 LLM，装配角色卡 / 世界书 / 预设 /
+> 卷 / 状态上下文，在有界戒律内跑 server-side agent loop（`src/agent/`），流式
+> 输出经 FSM 过滤 + XML 拆包，落库 + 状态持久化 + 封卷。
 >
-> **乐高式定位：** Core 只做"自调 LLM 的流式 RP 后端"一件事，可独立运行，不耦合生态其他块。
+> **乐高式定位：** Core 是生态的「推理大脑」——AIRP 四块里一直空着的那个框。
+> 底座纯度（不调 LLM 的数据工具面）移交 AIRP-MCP-Server 守护；Core 升入 runtime 层。
 >
 > | 想要 | 用 |
 > |---|---|
 > | 纯 MCP 数据工具面（角色卡/世界书/会话/状态，不调 LLM） | [AIRP-MCP-Server](https://github.com/GhostXia/AIRP-MCP-Server) |
 > | 协议桥 / AgentBus（HTTP/SSE ↔ MCP 翻译） | [AIRP-Gateway](https://github.com/GhostXia/AIRP-Gateway) |
 > | UI + State Protocol 契约（Tauri+Vue，Blueprint 渲染） | [AIRP-State-Protocol](https://github.com/GhostXia/AIRP-State-Protocol) |
-> | **自调 LLM 的流式 RP 后端（本仓）** | **AIRP-Core** |
+> | **自调 LLM 的 Agent 后端 + 流式 RP（本仓）** | **AIRP-Core** |
 
 ---
 
-**AIRP-Core 是自调 LLM 的流式 RP 后端。** 通过 OpenAI 兼容 SSE 网关暴露给前端：注入角色卡 / 世界书 / 预设 / 历史卷上下文，调用上游 LLM，对流式响应做 FSM 过滤与 XML 拆包（`immersive` / `<action>` 分离），落库 + 状态持久化 + 自动封卷。
+**AIRP-Core 是自调 LLM 的独立 Agent 后端。** 两条入口：`POST /v1/agent/run`（多步 loop，M_AGENT-1 已落地）与 `POST /v1/chat/completions`（单回合退化，向后兼容）。loop 协调器把单回合流式管线当库复用，在有界戒律内派生纯净 subagent + 调工具 + 收敛。
 
-**Core 自身调用 LLM。** 这与生态中 AIRP-MCP-Server「不调 LLM、纯数据工具」的定位互补——两者是乐高式的独立块，按需取用，不必整套。
+**Core 自身调用 LLM 且跑 loop。** 底座纯度（不调 LLM、不跑 loop）由 AIRP-MCP-Server 守护；Core 升入 runtime 层补位生态空框——这是 `AGENT_BACKEND_PLAN.md` 的转向。
 
 ---
 
 ## 设计理念
 
 - **License**：MIT OR Apache-2.0，商用 / fork / 集成无限制
-- **流式后端**：自调 LLM，单 Rust 二进制，OpenAI 兼容 `/v1/chat/completions` 入口
+- **独立 Agent 后端**：自调 LLM + 有界 server-side loop，单 Rust 二进制
 - **乐高式**：不假设上游有 MCP-Server、下游有 Gateway；可独立跑
+- **协议标准**：对外 OpenAI 兼容 + 结构化 tool-calling；不自造闭源协议
 - **数据格式**：SillyTavern V2 角色卡 / lorebook / preset 直读，与 AIRP-MCP-Server 共享 `data/` 目录布局，可互换
 
 ---
 
 ## 架构戒律
 
-1. **只做流式 RP 后端** — 自调 LLM、装配上下文、流式过滤、落库封卷。不做 MCP server、不做协议桥、不做 UI。
-2. **不跑 server-side agent loop** — 单轮请求-响应流式管线；agentic 多步循环由外部 host 调度（Core 不背 loop）。
-3. **乐高独立** — 不依赖、不绑定生态其他仓库；数据层自带，格式与 MCP-Server 兼容可互换。
-4. **开放接入** — `data/` 目录纯文本，任何工具可直读直写。
+Core 已从「单回合流式后端」演进为「独立 Agent 后端」（M_AGENT 系列，见 `AGENT_BACKEND_PLAN.md`）。底座纯度移交 [AIRP-MCP-Server](https://github.com/GhostXia/AIRP-MCP-Server) 守护；Core 升入 runtime 层，受**「有界 Agent 戒律」**约束：
+
+1. **有界** — loop 必须有 step 上限 + token/成本预算 + 墙钟超时，任一触顶即停。无限循环 = bug。
+2. **可取消** — 任何在跑的 agent run 必须能被客户端单次请求中止，已派生子任务随之收敛。
+3. **可观测** — 每一步（规划 / 工具调用 / 工具结果 / 生成）都流式可见，不做黑箱。
+4. **工具最小授权** — 工具走 allowlist；破坏性工具默认 dry-run，需显式确认才真执行。
+5. **幂等与隔离** — 带幂等键的工具重试不重复副作用；同角色/quota root 并发写串行化。
+6. **上下文纯净（RP 命门）** — agent 脚手架（工具定义 / 规划指令 / 观测回灌）走结构化通道，**不混入角色 system prompt**。进角色上下文的 token 由 RP 数据决定。
+
+> 一句话：底座戒律守"server 永不自醒"；Agent 戒律守"自醒也得在笼子里、且不弄脏角色上下文"。
+
+**M_AGENT 进度：** M_AGENT-0 定位落档 ✅ · **M_AGENT-1 Loop 骨架 ✅**（`POST /v1/agent/run`，`src/agent/`）· M_AGENT-2~7 待推。
 
 ---
 
@@ -43,11 +53,11 @@
 
 | 项 | 值 |
 |---|---|
-| 测试 | **307** passing（lib 297 + integration 10），1 ignored |
+| 测试 | **299** passing（lib 297 + integration 2 agent 不变式），1 ignored |
 | Clippy `--lib --bins -- -D warnings` | **0** warning |
 | CLI 子命令 | `daemon`（SSE 网关）、`run`（单次流式到 stdout） |
-| 已完成里程碑 | M0–M3 / M_CF / M_PR / M_MS / M_DX / M_LS / M_CA / M_HARDEN / M_PLUGIN_DATA（剥离前历史见 git log） |
-| 进行中 | 业务剥离 — 砍除 MCP 工具面 / Hub / diagnose / sync / UI，收缩为纯流式后端 |
+| HTTP 入口 | `/v1/chat/completions`（单回合）· `/v1/agent/run`（多步 loop，M_AGENT-1） |
+| Agent 进度 | M_AGENT-0 ✅ · **M_AGENT-1 ✅** · M_AGENT-2~7 待推（见 `AGENT_BACKEND_PLAN.md`） |
 
 ---
 
@@ -88,15 +98,19 @@ cargo build --release
 
 ### 使用模式
 
-剥离后 Core 只剩两种 CLI 入口：
+Core 两条入口，向后兼容：
 
 ```powershell
-# 1. daemon SSE 网关（生产用，前端经 OpenAI 兼容 /v1/chat/completions 调用）
+# 1. daemon SSE 网关（生产用）
 cargo run -- daemon --port 8000
+#   前端打 POST /v1/chat/completions（单回合，OpenAI 兼容）
+#   或    POST /v1/agent/run（多步 loop，M_AGENT-1；max_steps>1 启用）
 
 # 2. 单次流式到 stdout（脚本 / 调试）
 cargo run -- run --character alice --message "你好" --filters "<thought>[\s\S]*?<\/thought>"
 ```
+
+`/v1/agent/run` 入参 = `/v1/chat/completions` 超集：加 `max_steps`（缺省=1 退化单回合）、`token_budget`、`wall_clock_secs`。SSE 事件：`plan` / `tool_call` / `tool_result` / `delta` / `done`。
 
 便捷脚本：`run_daemon.bat`（增量编译 + 启动）、`run_tests.bat`。
 
@@ -107,6 +121,7 @@ cargo run -- run --character alice --message "你好" --filters "<thought>[\s\S]
 | Method | Path | 说明 |
 |---|---|---|
 | POST | `/v1/chat/completions` | OpenAI 兼容流式入口；限流 10 req/s、burst 20/IP |
+| POST | `/v1/agent/run` | M_AGENT-1：多步 agent loop（SSE）；`max_steps=1` ≡ chat/completions |
 | POST | `/v1/chat/history` / `/v1/chat/rollback` / `/v1/chat/regen` | 历史 / 回滚 / 重生 |
 | GET | `/v1/characters` / POST `/v1/characters/import` | 角色列表 / 导入 |
 | GET/POST | `/v1/sessions/:character_id` | 多会话 |
@@ -187,21 +202,18 @@ cargo run -- run --character alice --message "你好" --filters "<thought>[\s\S]
 ## 架构
 
 ```
-前端 (HTTP/SSE) → POST /v1/chat/completions
-  → daemon::chat_completion_handler
-  → chat_pipeline::prepare_pipeline
+前端 (HTTP/SSE) → POST /v1/agent/run (多步) 或 /v1/chat/completions (单回合)
+  → daemon::agent_run / chat_completion handler
+  → chat_pipeline::prepare_pipeline (装配上下文 + 持久化 user 消息)
       ├─ 校验 ID newtype（CharacterId / PresetId / SessionId / SceneId）
       ├─ 加载角色卡 + Orchestrator 装配 system prompt
       │    (card → preset → checkpoint gating → known context → 卷 → lorebook)
       └─ 持久化 user 消息（JSONL append）
-  → adapter::call_streaming_api_auto（OpenAI / Anthropic 双 provider）
-  → 流处理：
-      ├─ fsm.rs：char 级正则过滤（Aho-Corasick 加速）
-      └─ xml_unpacker.rs：immersive / <action> / <state> 拆包
-  → 派生 finalizer（JoinSet）：
-      ├─ 持久化 assistant 消息
-      ├─ 落盘 state/live.json（<state> 一次性解析）
-      └─ 卷封存（soft / hard token 阈值 → vol_XXX.md）+ 跨卷维护（≥3 卷晋升入 index）
+  → [单回合] adapter::call_streaming_api_auto → fsm + xml_unpacker → finalize
+  → [多步]   AgentLoop::run (src/agent/) 协调器：
+      ├─ 每步：派生纯净 subagent (run_generation_step) / 调工具 / 收敛
+      ├─ 四道闸：step cap + token 预算 + 墙钟 + CancellationToken
+      └─ SSE 事件：plan / tool_call / tool_result / delta / done
 ```
 
 多角色场景走 `prepare_scene_pipeline` 分支：加载 SceneConfig + 所有角色卡 + 合并 lorebook → `build_multi_char_system_prompt`。
@@ -210,6 +222,8 @@ cargo run -- run --character alice --message "你好" --filters "<thought>[\s\S]
 
 | 模块 | 职责 |
 |---|---|
+| `agent/mod.rs` | M_AGENT-1：`AgentLoop::run` 协调器（有界 loop + 四道闸 + SSE 事件） |
+| `agent/tools.rs` | `Tool` trait + `ToolRegistry` + mock `echo`（M_AGENT-2 将加 built-in） |
 | `daemon/mod.rs` | axum router + HTTP handlers + `RwLock<MutableConfig>` + 鉴权 + 限流 |
 | `chat_pipeline.rs` | 三阶段流：prepare → stream → finalize |
 | `orchestrator/` | 提示词装配（card / lorebook / preset / gating / volume_inject / 多角色场景） |

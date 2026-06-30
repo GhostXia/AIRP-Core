@@ -45,7 +45,17 @@ Convenience scripts: `run_daemon.bat` (incremental build + launch), `run_tests.b
 | UI + State Protocol 契约 | [AIRP-State-Protocol](https://github.com/GhostXia/AIRP-State-Protocol) |
 | **自调 LLM 的流式 RP 后端（本仓）** | **AIRP-Core** |
 
-Core 自身调用 LLM（`adapter.rs`），装配上下文（`orchestrator/`），流式过滤（`fsm` + `xml_unpacker`），落库封卷（`chat_store` + `volume_*`）。**不跑 server-side agent loop** —— agentic 多步循环由外部 host 调度。
+Core 自身调用 LLM（`adapter.rs`），装配上下文（`orchestrator/`），流式过滤（`fsm` + `xml_unpacker`），落库封卷（`chat_store` + `volume_*`）。**Core 已演进为独立 Agent 后端**（M_AGENT 系列）：在有界戒律内跑 server-side agent loop（`src/agent/`），把单回合流式管线当 loop 的一个动作复用，不重写。底座纯度移交 AIRP-MCP-Server 守护。
+
+## Agent Loop（M_AGENT-1 已落地）
+
+- 入口：`POST /v1/agent/run`（SSE）。`/v1/chat/completions` ≡ `max_steps=1` 退化情形（向后兼容）。
+- 协调器：`src/agent/mod.rs` `AgentLoop::run`。每步在「派生纯净 subagent / 调工具 / 收敛」间选择；四道闸（step cap + token 预算 + 墙钟 + CancellationToken）。
+- 工具：`src/agent/tools.rs` `Tool` trait + `ToolRegistry`。M_AGENT-1 仅 mock `echo`；M_AGENT-2 注入 built-in（chat_store/volume_*/scene/...）。
+- 复用纪律：派生 subagent = `chat_pipeline::prepare_pipeline` + `run_generation_step`（新增，跑生成返回累积不 finalize）。一行 SSE/provider/拆包都不重写。
+- 戒律#6 两平面隔离：角色平面（subagent 上下文）只由 RP 数据装配；控制平面（协调器多步状态）不注入 system prompt。`tests::subagent_context_has_no_orchestrator_noise` 守护。
+
+进度：M_AGENT-0 ✅ · M_AGENT-1 ✅ · M_AGENT-2~7 待推（见 `AGENT_BACKEND_PLAN.md`）。
 
 ## Architecture
 
@@ -64,6 +74,8 @@ Core 自身调用 LLM（`adapter.rs`），装配上下文（`orchestrator/`）�
 
 | Module | Role |
 |---|---|
+| `agent/mod.rs` | M_AGENT-1: `AgentLoop::run` orchestrator (bounded loop, 4 gates, SSE events) |
+| `agent/tools.rs` | `Tool` trait + `ToolRegistry` + mock `echo` (M_AGENT-2 will add built-ins) |
 | `daemon/mod.rs` | axum router, HTTP handlers, `DaemonState` with `RwLock<MutableConfig>`, auth + rate-limit |
 | `daemon/handlers.rs` | HTTP endpoint implementations (chat/characters/sessions/scenes/settings) |
 | `chat_pipeline.rs` | Three-phase stream: prepare → stream → finalize |
@@ -86,13 +98,14 @@ Core 自身调用 LLM（`adapter.rs`），装配上下文（`orchestrator/`）�
 - **JSONL chat logs** — one JSON line per message; `OpenOptions::append` is the only write path, O(1) append.
 - **ID newtypes** — validation at serde deserialization; downstream code trusts IDs are valid.
 - **`estimate_tokens`** — ±30% approximation, not real tiktoken. Volume thresholds tolerate this.
-- **No server-side agent loop** — single request-response stream; agentic loops are external host's job.
+- **Bounded agent loop** — `src/agent/` runs a server-side loop under six Agent戒律 (step cap + token budget + wall clock + cancel + allowlist + context purity). Single-turn = `max_steps=1` degenerate case. See `AGENT_BACKEND_PLAN.md`.
 
 ### HTTP API
 
 | Method | Path | Notes |
 |---|---|---|
 | POST | `/v1/chat/completions` | Rate-limited: 10 req/s, burst 20/IP (tower_governor) |
+| POST | `/v1/agent/run` | M_AGENT-1: multi-step agent loop (SSE); `max_steps=1` ≡ chat/completions |
 | POST | `/v1/chat/history` / `/v1/chat/rollback` / `/v1/chat/regen` | |
 | GET | `/v1/characters` · POST `/v1/characters/import` | |
 | GET/POST | `/v1/sessions/:character_id` | Multi-session |
