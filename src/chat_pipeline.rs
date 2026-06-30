@@ -68,8 +68,6 @@ pub struct FinalizerCtx {
     pub volume_config: VolumeConfig,
     /// M0 F-01：封卷任务需要再次发起 HTTP 调用，仍复用同一连接池。
     pub http_client: reqwest::Client,
-    /// MCP-7：resource subscription registry（来自 DaemonState），用于推送 state/live 更新通知。
-    pub state_subs: Option<crate::mcp::StateSubs>,
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -283,7 +281,6 @@ fn prepare_scene_pipeline(
             gen_params,
             volume_config: snapshot.volume_config.clone(),
             http_client: state.http_client.clone(),
-            state_subs: Some(state.state_subs.clone()),
         },
         http_client: state.http_client.clone(),
     })
@@ -575,7 +572,6 @@ pub fn prepare_pipeline(
             gen_params,
             volume_config: snapshot.volume_config.clone(),
             http_client: state.http_client.clone(),
-            state_subs: Some(state.state_subs.clone()),
         },
         http_client: state.http_client.clone(),
     })
@@ -705,7 +701,7 @@ async fn run_finalize(ctx: FinalizerCtx, raw_acc: String, cleaned_acc: String) {
     if let Some(ref cid) = ctx.character_id {
         let (stripped, live_state) = extract_state_content(&cleaned_acc);
         if let Some(ref state) = live_state {
-            persist_live_state(&ctx.data_root, cid.as_str(), state, ctx.state_subs.as_ref()).await;
+            persist_live_state(&ctx.data_root, cid.as_str(), state).await;
         }
         if !stripped.trim().is_empty() {
             match ChatLog::load_or_create(&ctx.data_root, cid.as_str()) {
@@ -965,15 +961,11 @@ pub(crate) fn extract_state_content(text: &str) -> (String, Option<serde_json::V
 
 /// Writes `state` to `characters/{character_id}/state/live.json` (overwrite).
 ///
-/// If `state_subs` is provided, also pushes `notifications/resources/updated`
-/// to all subscribers of `airp://characters/{id}/state/live`.
-///
 /// Failures are silently logged; state persistence is best-effort.
 async fn persist_live_state(
     data_root: &std::path::Path,
     character_id: &str,
     state: &serde_json::Value,
-    state_subs: Option<&crate::mcp::StateSubs>,
 ) {
     let state_dir = data_root
         .join("characters")
@@ -1017,30 +1009,6 @@ async fn persist_live_state(
         }
         Err(e) => {
             tracing::warn!(err = %e, "M_LS-1: 序列化 state 失败");
-            return;
-        }
-    }
-
-    // MCP-7: push resource update notification to all subscribers
-    if let Some(subs) = state_subs {
-        let uri = format!("airp://characters/{}/state/live", character_id);
-        // Clone matching peers while holding lock briefly
-        let peers: Vec<rmcp::service::Peer<rmcp::service::RoleServer>> = {
-            let guard = subs.lock().unwrap_or_else(|e| e.into_inner());
-            guard
-                .iter()
-                .filter(|(u, _)| u == &uri)
-                .map(|(_, p)| p.clone())
-                .collect()
-        };
-        if !peers.is_empty() {
-            let param = rmcp::model::ResourceUpdatedNotificationParam::new(uri.clone());
-            for peer in &peers {
-                if let Err(e) = peer.notify_resource_updated(param.clone()).await {
-                    tracing::debug!(uri = %uri, err = %e, "MCP-7: notify_resource_updated 失败（客户端已断开？）");
-                }
-            }
-            tracing::debug!(uri = %uri, count = peers.len(), "MCP-7: resource updated 通知已推送");
         }
     }
 }

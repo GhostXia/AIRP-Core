@@ -1,39 +1,41 @@
 # AIRP-Core
 
-> **Full version** of the AIRP RP data substrate.
-> Includes MCP server + SSE/HTTP compatibility layer + Web UI + SillyTavern/OpenAI SDK adapters.
+> **Pure Agent-side streaming RP backend.** Self-invokes the LLM, assembles
+> character / lorebook / preset / volume context, streams the response through
+> an FSM filter + XML unpacker, and persists chat log + state + sealed volumes.
 >
-> Looking for the lean MCP-only version? → [GhostXia/AIRP-MCP-Server](https://github.com/GhostXia/AIRP-MCP-Server)
+> **乐高式定位：** Core 只做"自调 LLM 的流式 RP 后端"一件事，可独立运行，不耦合生态其他块。
 >
-> Both versions share the same data contract (character cards, presets, lorebooks, JSONL chat format)
-> and the same `data/` directory layout — you can switch between them with zero migration.
+> | 想要 | 用 |
+> |---|---|
+> | 纯 MCP 数据工具面（角色卡/世界书/会话/状态，不调 LLM） | [AIRP-MCP-Server](https://github.com/GhostXia/AIRP-MCP-Server) |
+> | 协议桥 / AgentBus（HTTP/SSE ↔ MCP 翻译） | [AIRP-Gateway](https://github.com/GhostXia/AIRP-Gateway) |
+> | UI + State Protocol 契约（Tauri+Vue，Blueprint 渲染） | [AIRP-State-Protocol](https://github.com/GhostXia/AIRP-State-Protocol) |
+> | **自调 LLM 的流式 RP 后端（本仓）** | **AIRP-Core** |
 
 ---
 
-**AIRP-Core 是 MCP-native RP 数据底座。** 提供角色卡 / 世界书 / 预设 / 会话 / 状态 / 卷封存的持久化原语，通过 Model Context Protocol（stdio + HTTP）和 OpenAI 兼容 SSE 网关两条入口暴露给 AI Agent。
+**AIRP-Core 是自调 LLM 的流式 RP 后端。** 通过 OpenAI 兼容 SSE 网关暴露给前端：注入角色卡 / 世界书 / 预设 / 历史卷上下文，调用上游 LLM，对流式响应做 FSM 过滤与 XML 拆包（`immersive` / `<action>` 分离），落库 + 状态持久化 + 自动封卷。
 
-**不调用 LLM、不跑后台循环、不强加 RP 业务逻辑。** 所有推理、叙事推进、状态决策由 client / Agent 完成。AIRP 只管数据形态正确 + 不变式守护 + 原语组合性强。
+**Core 自身调用 LLM。** 这与生态中 AIRP-MCP-Server「不调 LLM、纯数据工具」的定位互补——两者是乐高式的独立块，按需取用，不必整套。
 
 ---
 
 ## 设计理念
 
 - **License**：MIT OR Apache-2.0，商用 / fork / 集成无限制
-- **协议**：MCP 标准（Anthropic 发布；Claude Code / Cursor / Continue / Pi 原生支持）
-- **服务端零 LLM 调度**：所有推理由 client / Agent 完成，AIRP 只持久化数据
-- **部署**：单 Rust 二进制
-- **数据格式**：SillyTavern V2 角色卡 / lorebook / preset 直读
+- **流式后端**：自调 LLM，单 Rust 二进制，OpenAI 兼容 `/v1/chat/completions` 入口
+- **乐高式**：不假设上游有 MCP-Server、下游有 Gateway；可独立跑
+- **数据格式**：SillyTavern V2 角色卡 / lorebook / preset 直读，与 AIRP-MCP-Server 共享 `data/` 目录布局，可互换
 
 ---
 
-## 四条架构戒律
+## 架构戒律
 
-支配所有功能取舍的硬性原则：
-
-1. **拒绝任何 server 侧 loop / 决策 / 自动副作用** — 不跑 agent loop，不调 LLM，不解析模型输出语义
-2. **欢迎把 RP 数据形态固化成原语** — 角色卡 / 世界书 / 卷 / gating / 多角色场景都是合法扩展
-3. **疑虑替 Agent 决定怎么玩的工具** — 不内置 dice / combat / economy 模块；Agent 用通用 `update_state` 自己写
-4. **开放接入** — 任何插件、任何语言、无需特殊适配即可接入；零特化、零注册、零 schema 强制
+1. **只做流式 RP 后端** — 自调 LLM、装配上下文、流式过滤、落库封卷。不做 MCP server、不做协议桥、不做 UI。
+2. **不跑 server-side agent loop** — 单轮请求-响应流式管线；agentic 多步循环由外部 host 调度（Core 不背 loop）。
+3. **乐高独立** — 不依赖、不绑定生态其他仓库；数据层自带，格式与 MCP-Server 兼容可互换。
+4. **开放接入** — `data/` 目录纯文本，任何工具可直读直写。
 
 ---
 
@@ -41,28 +43,33 @@
 
 | 项 | 值 |
 |---|---|
-| 测试 | **465** passing（lib 455 + integration 10），1 ignored |
+| 测试 | **307** passing（lib 297 + integration 10），1 ignored |
 | Clippy `--lib --bins -- -D warnings` | **0** warning |
-| MCP 工具 | 39（含 5 user persona + 4 P0 读 + delete_character + 4 scene CRUD + 3 volume ops + 6 plugin data，全部带 ToolAnnotations） |
-| MCP 资源 | 4 静态 + 12 模板 |
-| MCP Prompts | 5 |
-| 已完成里程碑 | M0–M3 / M_CF / M_PR (PR-1~10) / M_MS / M_MCP / M_DX / M_LS / M_CA / **M_HARDEN (13/13)** / **M_PLUGIN_DATA** |
-| 进行中 | — |
+| CLI 子命令 | `daemon`（SSE 网关）、`run`（单次流式到 stdout） |
+| 已完成里程碑 | M0–M3 / M_CF / M_PR / M_MS / M_DX / M_LS / M_CA / M_HARDEN / M_PLUGIN_DATA（剥离前历史见 `REFACTOR_PLAN.md`） |
+| 进行中 | 业务剥离 — 砍除 MCP 工具面 / Hub / diagnose / sync / UI，收缩为纯流式后端 |
 
 ---
 
 ## 快速开始
 
-### 零基础路线（非程序员，无需 Rust 工具链）
+### 启动 daemon（SSE 网关）
 
-1. 从 [GitHub Releases](https://github.com/GhostXia/AIRP-Core/releases) 下载对应平台的压缩包（Windows / Linux / macOS），解压得到 `airp-core`（Windows 为 `airp-core.exe`）
-2. 在 Claude Code 里一条命令注册（路径换成你的实际位置）：
-   ```
-   claude mcp add airp -- C:\airp\airp-core.exe mcp --data-dir C:\airp\data
-   ```
-3. 完成。对 Claude 说"导入这张角色卡并开始会话"即可 — 39 个工具自动可用，数据落在 `data/` 目录纯文本文件里，随时可看可备份。
+```powershell
+cargo run -- daemon --port 8000
+# 或 release 二进制
+airp-core.exe daemon --port 8000
+```
 
-> 其他 MCP 客户端（Claude Desktop / Cursor / Continue / Pi）：参考 `mcp_config.example.json` 配置模板。
+随后前端经 `POST http://127.0.0.1:1:8000/v1/chat/completions`（OpenAI 兼容）发请求，Core 装配上下文、自调上游 LLM、流式回 SSE（`UnpackedChunk`：`immersive` / `<action>` 拆包），并自动落库 + 封卷。
+
+配置（上游 endpoint / api_key / model 等）走 `config.json` + `data/settings.json` + 环境变量三层合并，运行时可经 `POST /v1/settings` 热重载。详见 `AGENTS.md`。
+
+### 单次流式到 stdout（CLI 调试）
+
+```powershell
+cargo run -- run --character alice --message "你好" --filters "<thought>[\s\S]*?<\/thought>"
+```
 
 ### Windows 构建环境
 
@@ -79,77 +86,56 @@ $env:PATH = "D:\msys64\mingw64\bin;" + $env:PATH
 cargo build --release
 ```
 
-### 三种使用模式
+### 使用模式
 
-**1. MCP stdio（推荐：Claude Code / Cursor / Pi）**
-
-```powershell
-cargo run -- mcp --data-dir ./data
-```
-
-`mcp_config.example.json` 是 Claude Code MCP 配置模板。
-
-**2. MCP HTTP + SSE 网关（同进程多 client）**
+剥离后 Core 只剩两种 CLI 入口：
 
 ```powershell
+# 1. daemon SSE 网关（生产用，前端经 OpenAI 兼容 /v1/chat/completions 调用）
 cargo run -- daemon --port 8000
+
+# 2. 单次流式到 stdout（脚本 / 调试）
+cargo run -- run --character alice --message "你好" --filters "<thought>[\s\S]*?<\/thought>"
 ```
-
-- MCP Streamable HTTP：`POST/GET /mcp/v1`
-- OpenAI 兼容 SSE：`POST /v1/chat/completions`
-- Web UI：`http://127.0.0.1:8000`
-
-**3. 单次 CLI 渲染（脚本管线）**
-
-```powershell
-cargo run -- run --message "你好" --filters "<thought>[\s\S]*?<\/thought>"
-```
-
-**4. 一次性 MCP 工具调用（agent shell 自动化 / CI 自检）**
-
-不起 server，单次调用单个 MCP 工具并返回 JSON 到 stdout。
-
-```bash
-airp-core tool ping
-airp-core tool list_sessions --json '{"character_id":"alice"}'
-airp-core tool append_message --json '{"character_id":"alice","role":"user","content":"hi"}'
-airp-core tool get_recent_context --json '{"character_id":"alice","n":10}'
-```
-
-退出码 0 = 成功（结果在 stdout）；退出码 1 = 错误（消息在 stderr）。
-
-**5. 一键全景诊断（用户报 bug 时跑这条）**
-
-```bash
-airp-core diagnose                        # 全量 JSON
-airp-core diagnose --format summary       # 人可读简表
-airp-core diagnose --character-id alice   # 聚焦单个角色
-```
-
-输出含：data root 健康、settings 字段（敏感字段仅 `*_set` 布尔，**永不明文**）、所有角色 / 预设 / 场景概要（卡片状态、lorebook 条目数、chat 行数、卷数、当前 CP 等）。用户复制粘贴 → 维护者立即定位问题。
 
 便捷脚本：`run_daemon.bat`（增量编译 + 启动）、`run_tests.bat`。
 
 ---
 
-## MCP 工具表
+## HTTP API
 
-全部 39 个工具带 MCP 标准 `ToolAnnotations` 元数据，harness 可据此自动判断 "静默调 vs 需用户确认"。
-
-> 工具数以 `airp-core list-tools` / `AirpMcpServer::tool_count()` 为单一真相源。下表为常用子集示例，完整列表跑 `airp-core list-tools --format summary`。
-
-| 工具 | 用途 | side_effect |
+| Method | Path | 说明 |
 |---|---|---|
-| `ping` | 健康检查 | readonly |
-| `import_card` | 导入 V2 角色卡（JSON 或 base64 PNG） | mutate / idempotent |
-| `import_preset` | 导入 SillyTavern 预设 | mutate / idempotent |
-| `apply_lorebook` | 扫描文本，返回触发条目 | readonly |
-| `start_session` | 启动 RP 会话 → system_prompt + greetings | mutate |
-| `get_recent_context` | 读 ChatLog 最近 N 条 | readonly |
-| `append_message` | 追加消息到 chat.jsonl（O(1) append） | append |
-| `update_state` | 写 `state/live.json` + 追加 `history.jsonl` 快照 | mutate |
-| `rollback_messages` | 回滚最后 N 条消息 | destructive |
-| `list_sessions` | 列具名 sessions | readonly |
+| POST | `/v1/chat/completions` | OpenAI 兼容流式入口；限流 10 req/s、burst 20/IP |
+| POST | `/v1/chat/history` / `/v1/chat/rollback` / `/v1/chat/regen` | 历史 / 回滚 / 重生 |
+| GET | `/v1/characters` / POST `/v1/characters/import` | 角色列表 / 导入 |
+| GET/POST | `/v1/sessions/:character_id` | 多会话 |
+| GET/POST | `/v1/scenes` · `/v1/scenes/:id` · `/v1/scenes/:id/characters` | 多角色场景 |
+| GET | `/v1/characters/:id/avatar` · `/state` · `/state/schema` · `/state/history` | 角色资产 / 状态 |
+| GET/POST | `/v1/settings` | 运行时配置热重载 |
+| GET | `/v1/models` | 透传上游 provider 的 /models |
+| GET | `/version` | 构建元数据（name + version） |
+
+**注：** `/mcp/v1`（MCP Streamable HTTP）已随 MCP 工具面剥离移除——如需 MCP 协议入口，用 [AIRP-Gateway](https://github.com/GhostXia/AIRP-Gateway) 或 [AIRP-MCP-Server](https://github.com/GhostXia/AIRP-MCP-Server)。
+
+---
+
+## 模块地图（剥离后）
+
+| 模块 | 职责 |
+|---|---|
+| `adapter.rs` | OpenAI / Anthropic 双 provider 流式调用 + 引擎分发（Direct / AnthropicMessages / ClaudeCodeSdk stub） |
+| `chat_pipeline.rs` | 三相流：prepare（上下文装配）→ stream（FSM 过滤 + XML 拆包 + SSE）→ finalize（落库 + 状态 + 封卷） |
+| `orchestrator/` | prompt 装配：card / lorebook / preset / gating / volume_inject / 多角色场景 |
+| `daemon/` | axum 路由、HTTP handlers、`DaemonState`（`RwLock<MutableConfig>`）、鉴权 + 限流 |
+| `chat_store.rs` | ChatLog JSONL 持久化，O(1) append |
+| `volume_store.rs` / `volume_manager.rs` | current.md / vol_XXX.md / index.md I/O + 封卷工作流 |
+| `fsm.rs` / `xml_unpacker.rs` | 字符级流式过滤 + `immersive`/`<action>`/`<state>` 拆包（`pub(crate)`） |
+| `config.rs` | 三层合并：default → settings.json → env → 请求 body |
+| `types.rs` | Newtype IDs：`CharacterId` / `PresetId` / `SessionId` / `SceneId` |
+| `data_dir/` | 路径解析 + 安全原语 |
+| `scene.rs` | 多角色场景配置（SceneConfig） |
+| `png_parser.rs` | SillyTavern V2 PNG 角色卡解析 |
 | `get_state_history` | 读状态快照（newest-first） | readonly |
 | `write_preset_artifact` | Agent 写预设分析产物 | mutate / idempotent |
 | `write_character_artifact` | Agent 写角色卡分析产物 | mutate / idempotent |
@@ -190,94 +176,53 @@ airp-core diagnose --character-id alice   # 聚焦单个角色
 - **变量设定 / Drift**（`users/{id}/state/live.json`）：剧情推进中累积的变化（学会新技能、心情变化等）
 - Server **不判定语义冲突**（戒律 1）— `get_user_persona` 返回完整 base + drift + drift_keys，Agent 自行推断「不会打篮球（base）vs 学会了打篮球（drift）」这类冲突
 
-详细 schema 见 `docs/mcp.md`。
-
 ---
-
-## HTTP API（兼容层）
-
-| 方法 | 路径 | 用途 | 限流 |
-|---|---|---|---|
-| GET / POST | `/mcp/v1` | MCP Streamable HTTP 入口 | — |
-| GET | `/` | Web UI（embedded `index.html`） | — |
-| POST | `/v1/chat/completions` | OpenAI 兼容 SSE 流 | 10 req/s + burst 20/IP |
-| POST | `/v1/chat/history` | 拉 ChatLog | — |
-| POST | `/v1/chat/rollback` | 回滚到指定 index | — |
-| POST | `/v1/chat/regen` | 删最后一条 | — |
-| GET | `/v1/characters` | 列角色 | — |
-| POST | `/v1/characters/import` | 导入角色卡 | — |
-| GET / POST | `/v1/sessions/:character_id` | 多 session 管理 | — |
-| GET / POST | `/v1/settings` | 配置热重载 | — |
 
 **ID 类型契约**：`character_id` / `preset_id` 反序列化即 `validate_id_segment`（拒路径分隔符、`..`、空字节、`.` 开头）；`session_id` 必须合法 UUID v4。
 
-可选 API key 鉴权：env `AIRP_ACCESS_KEY` 设置后所有 `/v1/*` 路径要求 `Authorization: Bearer <key>`（`/mcp/v1` 不受影响）。
+可选 API key 鉴权：env `AIRP_ACCESS_KEY` 设置后所有 `/v1/*` 路径要求 `Authorization: Bearer <key>`。
 
 ---
 
 ## 架构
 
-### MCP 主入口（推荐路径）
-
 ```
-Claude Code / Cursor / 任何 MCP client
-  → airp-core mcp (stdio) 或 POST /mcp/v1 (HTTP)
-  → src/mcp/mod.rs: AirpMcpServer (#[tool_router])
-      ├─ tools.rs：33 个工具实现
-      ├─ resources.rs：静态 + 模板资源（airp://characters/...）
-      └─ prompts.rs：Agent 工作流提示词
-```
-
-**典型 RP 工作流**：
-```
-import_card → start_session → 循环:
-    get_recent_context → [client 调 LLM] →
-    append_message(user) → append_message(assistant) →
-    update_state（可选）
-```
-
-### SSE 兼容层（旧酒馆生态）
-
-```
-POST /v1/chat/completions
+前端 (HTTP/SSE) → POST /v1/chat/completions
   → daemon::chat_completion_handler
   → chat_pipeline::prepare_pipeline
-      ├─ 校验 ID newtype
+      ├─ 校验 ID newtype（CharacterId / PresetId / SessionId / SceneId）
       ├─ 加载角色卡 + Orchestrator 装配 system prompt
       │    (card → preset → checkpoint gating → known context → 卷 → lorebook)
       └─ 持久化 user 消息（JSONL append）
-  → adapter::call_streaming_api（OpenAI 兼容上游）
+  → adapter::call_streaming_api_auto（OpenAI / Anthropic 双 provider）
   → 流处理：
       ├─ fsm.rs：char 级正则过滤（Aho-Corasick 加速）
-      └─ xml_unpacker.rs：<think>/<action> 拆包
+      └─ xml_unpacker.rs：immersive / <action> / <state> 拆包
   → 派生 finalizer（JoinSet）：
       ├─ 持久化 assistant 消息
-      ├─ 卷封存（soft / hard token 阈值 → vol_XXX.md）
-      └─ 跨卷维护（≥3 卷晋升入 index）
+      ├─ 落盘 state/live.json（<state> 一次性解析）
+      └─ 卷封存（soft / hard token 阈值 → vol_XXX.md）+ 跨卷维护（≥3 卷晋升入 index）
 ```
+
+多角色场景走 `prepare_scene_pipeline` 分支：加载 SceneConfig + 所有角色卡 + 合并 lorebook → `build_multi_char_system_prompt`。
 
 ### 关键模块
 
 | 模块 | 职责 |
 |---|---|
-| `mcp/mod.rs` | MCP server：`AirpMcpServer`、`#[tool_router]`、资源 / 提示词 handler |
-| `mcp/tools.rs` | 33 个 `_impl` 实现 |
-| `mcp/resources.rs` | 静态 + 模板资源 |
-| `mcp/prompts.rs` | Agent 工作流提示词 |
-| `mcp/transport_http.rs` | Streamable HTTP MCP transport（`/mcp/v1`） |
-| `daemon/mod.rs` | axum router + HTTP handlers + `RwLock<MutableConfig>` |
+| `daemon/mod.rs` | axum router + HTTP handlers + `RwLock<MutableConfig>` + 鉴权 + 限流 |
 | `chat_pipeline.rs` | 三阶段流：prepare → stream → finalize |
-| `orchestrator/` | 提示词装配（card / lorebook / preset / gating / volume_inject） |
+| `orchestrator/` | 提示词装配（card / lorebook / preset / gating / volume_inject / 多角色场景） |
+| `adapter.rs` | `Provider` enum、`ProviderConfig`、`GenerationParams`、OpenAI/Anthropic 双格式 SSE |
 | `chat_store.rs` | ChatLog JSONL 持久化（O(1) append） |
-| `adapter.rs` | `Provider` enum、`ProviderConfig`、`GenerationParams` |
 | `fsm.rs` | char 级流过滤 FSM（`pub(crate)`） |
-| `xml_unpacker.rs` | `<think>` / `<action>` 拆包（`pub(crate)`） |
-| `volume_store.rs` | current.md / vol_XXX.md / index.md I/O（`pub(crate)`） |
-| `volume_manager.rs` | 封卷流程 + `run_maintenance`（`pub(crate)`） |
+| `xml_unpacker.rs` | `immersive` / `<action>` / `<state>` 拆包（`pub(crate)`） |
+| `volume_store.rs` / `volume_manager.rs` | 卷 I/O + 封卷工作流（`pub(crate)`） |
 | `config.rs` | 三层合并：default → settings.json → env → request |
 | `types.rs` | newtype ID（serde 反序列化时校验） |
-| `data_dir/` | 路径解析 + 安全原语（`resolve_session_dir`、`validate_id_segment`） |
-| `scene.rs` | 多角色场景（M_MS） |
+| `data_dir/` | 路径解析 + 安全原语 |
+| `scene.rs` | 多角色场景（SceneConfig） |
+| `png_parser.rs` | SillyTavern V2 PNG 角色卡解析 |
 
 ### 工程不变式
 
@@ -383,7 +328,7 @@ docker-compose up --build -d
 - M_DX：API key 鉴权 + Docker 部署
 - M_LS：实时状态系统 + schema 推断
 - M_CA：Agent-driven 分析提示词
-- **M_HARDEN：13/13 子任务全部完成**（鉴权扩展到 /mcp/v1、SceneId newtype 全量 retrofit、tool side_effect 元数据、resource subscribe emit、idempotency keys、stdio 优雅停机、/version 端点、rmcp pin、卷封存/跨卷维护软提示、list-tools CLI、safe_resolve property test、RwLock 决策验证）
+- **M_HARDEN：13/13 子任务全部完成**（鉴权扩展到 /v1/*、SceneId newtype 全量 retrofit、tool side_effect 元数据、resource subscribe emit、idempotency keys、stdio 优雅停机、/version 端点、rmcp pin、卷封存/跨卷维护软提示、list-tools CLI、safe_resolve property test、RwLock 决策验证）
 - **M_PLUGIN_DATA：零 schema 三原语**（plugin_kv_get/set + plugin_jsonl_append/read + plugin_blob_write/read，6 工具 + 3 资源 URI + 订阅推送；戒律 4 开放接入落地）
 
 **预留里程碑：**
@@ -399,7 +344,6 @@ docker-compose up --build -d
 - **`estimate_tokens` ±30% 偏差** — 启发式而非真实 tokenizer。卷阈值容忍
 - **Windows-GNU 本地覆盖率不可跑** — `profiler_builtins` runtime 缺失；`cargo llvm-cov` 仅 Linux CI 跑得通
 - **错误响应中文为主** — 跨语言 API client 解析不便（未来 M_I18N 规划）
-- **Web UI 未对接全部新 API** — 部分 session / 多角色场景管理仍待 UI 集成
 - **角色卡仅支持 PNG / JSON** — PNG 覆盖 `tEXt` / `zTXt` / `iTXt`（含 zlib 压缩），`ccv3`(V3) 优先回退 `chara`(V2)，v1 平铺卡自动归一化为 v2。WEBP / JPEG 非 SillyTavern 标准导出格式，暂不支持（未来扩展：EXIF/XMP 字节扫描解卡）
 
 ---
