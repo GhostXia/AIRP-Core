@@ -169,8 +169,8 @@ pub fn detect_json_shape(json: &str) -> JsonShape {
 
     // 角色卡特征（优先）。
     let spec = obj.get("spec").and_then(Value::as_str).unwrap_or("");
-    let is_v2v3_card =
-        matches!(spec, "chara_card_v2" | "chara_card_v3") && obj.get("data").is_some_and(Value::is_object);
+    let is_v2v3_card = matches!(spec, "chara_card_v2" | "chara_card_v3")
+        && obj.get("data").is_some_and(Value::is_object);
     let is_v1_card = obj.contains_key("char_name")
         || (obj.contains_key("first_mes")
             && (obj.contains_key("name") || obj.contains_key("personality")));
