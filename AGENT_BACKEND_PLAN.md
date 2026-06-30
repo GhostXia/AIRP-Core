@@ -319,7 +319,7 @@ AIRP-State-Protocol  ←  AIRP-Gateway  ←  AIRP-MCP-Server  ←  AIRP-Core
 ## 9. 地平线（不排期，仅记录）
 
 - **四项目收敛成发行版**：把 Core / MCP-Server / Gateway / State-Protocol 在一个新仓拼成一键全栈。**当前只是想法**（用户 2026-06-30 明确"现阶段不考虑"）。若将来启动，倾向"bundle 发行版"（submodule/workspace 收纳 + 各自仓仍独立上游开发），而非物理 monorepo 吞并——以守每块的乐高独立。本计划不为它落任何 milestone。
-- **AIRP-RAG（语义检索）**：§3.0 用例 2/3 天然指向检索。但用户 2026-06-30 明确"RAG 只是想法，除非真的需要否则暂不考虑"。**暂缓**——长程记忆先用 volume + 简单检索顶着；真撞到瓶颈再起。本地 `D:\AIRP-RAG` 仍空目录、未起仓。
+- **AIRP-RAG（语义检索）**：§3.0 用例 2/3 天然指向检索。但用户 2026-06-30 明确"RAG 只是想法，除非真的需要否则暂不考虑"。**暂缓**——长程记忆先用 volume + 简单检索顶着；真撞到瓶颈再起。本地 AIRP-RAG 目录仍空、未起仓。
 
 ---
 
@@ -329,7 +329,7 @@ AIRP-State-Protocol  ←  AIRP-Gateway  ←  AIRP-MCP-Server  ←  AIRP-Core
 - ✅ canonical 主线 = daemon 面（MCP 面已删，无歧义）；daemon 面 = 一等生产路径。
 - ✅ `AGENT_CLIENT_ASSESSMENT.md` 已从 git 历史取回入库（仓根，已暂存）。
 - ✅ 入口形态 = `/v1/agent/run` 为主，`/v1/chat/completions` ≡ `max_steps=1`（§4.3 / §7）。
-- ✅ `<state>` schema clamp（M_AGENT-6）、防越权划归 preset/prompt + `<action>`（M_AGENT-2）、ClaudeCodeSdk 列可选 engine（§8）。
+- ✅ 防越权划归 preset/prompt + `<action>`（M_AGENT-2）、ClaudeCodeSdk 列可选 engine（§8）。
 - ✅ 记忆库 doctrine 已更新（新增 [[project_core_agent_backend_pivot]] + 标注旧两条 + 索引）。
 - 🔻 README/AGENTS 戒律#2 改写：**推荐等 M_AGENT-1 骨架可跑后再一并改**（避免文档先于代码"承诺"loop）。除非你要现在就改。
 
@@ -337,6 +337,7 @@ AIRP-State-Protocol  ←  AIRP-Gateway  ←  AIRP-MCP-Server  ←  AIRP-Core
 
 1. **纯净度代价是否接受**：戒律#6 实际把"纯文本 in-prompt-ReAct"模型挡在 loop 工具之外（§4.2 / §7）。你接受这个取舍（纯净优先），还是要留一条"污染模式"开关兼容那类模型？
 2. **首批 built-in 工具范围**：M_AGENT-2 先做哪几个？建议从 §3.0 用例 1（多角色纯净轮转）+ 5（gating 推进）切入——纯复用现有 `scene` / `gating`，零外部依赖，且用例 1 直接展示纯净度卖点。
-3. **本文件命名 / 位置**：现 `AGENT_BACKEND_PLAN.md`（仓根，未入库）。保持仓根 / 移 `docs/` / 仿 `REFACTOR_PLAN.md` 设本地 gitignore 工作文档？
+3. **本文件位置**：现 `AGENT_BACKEND_PLAN.md`（仓根，本 PR 入库）。将来保持仓根 / 移 `docs/`？
+4. **`<state>` 数值是否强制 clamp**（报告 §5.1 + M_AGENT-6）：计划按 `schema.json` 的 min/max 钳制（防模型写 `affection:999`），但报告原话要 Core 维护者确认"数值强制是否为预期目标"。确认即在 `persist_live_state` 落盘前 clamp；否决则只读 schema、不钳制。
 
 > 拓扑链（§4.4）是大概流程、非最终，Core 接入方式不前置决定——故不列开放项。
