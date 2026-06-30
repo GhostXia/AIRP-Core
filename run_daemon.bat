@@ -6,7 +6,7 @@ set RUSTUP_HOME=D:\.rustup
 set PATH=D:\msys64\mingw64\bin;%PATH%
 
 echo ===================================================
-echo   AIRP-Core Stateful Streaming Gateway
+echo   AIRP-Core Streaming RP Backend
 echo   Compiling latest changes and launching daemon...
 echo ===================================================
 echo.

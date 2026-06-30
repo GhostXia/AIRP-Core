@@ -3,8 +3,6 @@ target/
 
 # Compiled executables
 *.exe
-!run_daemon.bat
-!run_tests.bat
 
 # Runtime config (contains API keys)
 config.json
@@ -27,27 +25,9 @@ data/
 Thumbs.db
 .DS_Store
 
-# Reference projects (not part of core)
-reference_projects/
-
-# Raw test source material (large binaries / preset JSONs; imported to data/)
-test/
-
-# Community discussion notes (local-only design references, not public)
-社区讨论/
-
-# Local reference clones (e.g. sibling project checkouts for cross-reference)
-.tmp-*/
-
-# Local scratch commit messages (used by PowerShell to feed `git commit -F`)
+# Local scratch commit messages
 .tmp_commit_msg.txt
 
-# Internal design history / roadmap (closed-source — strategic positioning,
-# audit plans, competitive analysis; local-only)
-REFACTOR_PLAN.md
-
-# Per-machine Claude Code settings (not for public repo)
+# Per-machine Claude Code settings
 .claude/settings.local.json
 
-# Internal test transcript (references real card identities — local only)
-INTEGRATION_TEST_PLAN.md

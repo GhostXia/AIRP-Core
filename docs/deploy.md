@@ -1,4 +1,4 @@
-# AIRP-Core 公网部署指南 (DX-9)
+# AIRP-Core 公网部署指南
 
 ## 快速启动（Docker Compose）
 
@@ -65,55 +65,22 @@ Caddy 自动申请并续期 Let's Encrypt 证书。
 
 ## API Key 鉴权（公网推荐）
 
-设置 `AIRP_ACCESS_KEY` 后，所有 `/v1/*` **和 `/mcp/v1`** 请求需携带：
+设置 `AIRP_ACCESS_KEY` 后，所有 `/v1/*` 请求需携带：
 
 ```
 Authorization: Bearer <your-key>
 ```
 
-（AUDIT-1 起 `/mcp/v1` 也纳入鉴权中间件。）仅 Web UI（`/`）、`/version`、`/health` 三个公开端点不要求鉴权 —— 它们只返回静态/构建信息，不触碰用户数据。
+仅 `/version` 公开端点不要求鉴权 —— 它只返回构建元数据，不触碰用户数据。鉴权 key 比较使用常量时间算法，不泄露逐字节计时旁路。
 
-鉴权 key 比较使用常量时间算法（A2-5），不泄露逐字节计时旁路。
-
-## MCP 客户端连接（stdio 模式）
-
-Claude Code / Cursor 本地连接，无需 daemon 或 Docker：
-
-```json
-{
-  "mcpServers": {
-    "airp": {
-      "command": "airp-core",
-      "args": ["mcp"],
-      "env": {
-        "AIRP_DATA_DIR": "/path/to/your/data"
-      }
-    }
-  }
-}
-```
-
-## MCP HTTP 连接（公网模式）
-
-在 Claude Desktop / 支持 HTTP MCP 的客户端中：
-
-```json
-{
-  "mcpServers": {
-    "airp-remote": {
-      "url": "https://your-domain.example.com/mcp/v1",
-      "transport": "http"
-    }
-  }
-}
-```
+> **MCP 协议入口已剥离：** Core 不再提供 `/mcp/v1` 或 stdio MCP server。如需 MCP 协议接入，用 [AIRP-Gateway](https://github.com/GhostXia/AIRP-Gateway)（协议桥）+ [AIRP-MCP-Server](https://github.com/GhostXia/AIRP-MCP-Server)（数据工具面）。
 
 ## 安全建议
 
-1. **公网部署必须设置 `AIRP_ACCESS_KEY`** — 否则任何人可调用 LLM（计费风险）。`/v1/*` 与 `/mcp/v1` 均受其保护。
+1. **公网部署必须设置 `AIRP_ACCESS_KEY`** — 否则任何人可调用 LLM（计费风险）。`/v1/*` 全部受其保护。
 2. `data/settings.json` 含 API Key 明文 — 确保数据目录访问权限（chmod 700）
 3. 建议定期轮换 `AIRP_ACCESS_KEY`（通过 `POST /v1/settings` 热更新，无需重启）
-4. 全端点（除 chat 外的 import/sync/scene/mcp）均挂限流：10 req/s + burst 20 per-IP（A2-7）
+4. 全端点（chat/import/scene/sessions 等）均挂限流：10 req/s + burst 20 per-IP
 
 ### A2-3：默认本地 CORS 风险（必读）
 
@@ -126,9 +93,9 @@ daemon 默认 **不鉴权**（`AIRP_ACCESS_KEY` 为空）且 CORS `Access-Contro
 2. 任何浏览器可能访问该机器 → **设 `AIRP_ACCESS_KEY`**。带凭据的跨域请求被 CORS 预检挡下，且无 key 直接 401。
 3. 多用户 / 团队 → 反代层（Caddy）加 IP 白名单，并收紧 `Allow-Origin` 到可信前端域。
 
-> 默认值优先开箱即用（本地单用户场景）。生产 / 共享环境必须显式加固。未来可考虑默认收紧 CORS（需用户拍板，属设计决策）。
+> 默认值优先开箱即用（本地单用户场景）。生产 / 共享环境必须显式加固。
 
-### A2-4：并发写约束（已知限制）
+### 并发写约束（已知限制）
 
 AIRP **假设单写者**（一个用户、串行请求）。同一角色 / 同一 quota root 的**并发写**目前无文件锁保护：
 
