@@ -46,7 +46,7 @@
 | 测试 | **307** passing（lib 297 + integration 10），1 ignored |
 | Clippy `--lib --bins -- -D warnings` | **0** warning |
 | CLI 子命令 | `daemon`（SSE 网关）、`run`（单次流式到 stdout） |
-| 已完成里程碑 | M0–M3 / M_CF / M_PR / M_MS / M_DX / M_LS / M_CA / M_HARDEN / M_PLUGIN_DATA（剥离前历史见 `REFACTOR_PLAN.md`） |
+| 已完成里程碑 | M0–M3 / M_CF / M_PR / M_MS / M_DX / M_LS / M_CA / M_HARDEN / M_PLUGIN_DATA（剥离前历史见 git log） |
 | 进行中 | 业务剥离 — 砍除 MCP 工具面 / Hub / diagnose / sync / UI，收缩为纯流式后端 |
 
 ---

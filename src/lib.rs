@@ -17,7 +17,7 @@
 //! - `fsm` · `xml_unpacker` · `auto_converter`
 //! - `volume_store` · `volume_manager` · `index_parser`
 //!
-//! 设计概览参见仓库根目录 `REFACTOR_PLAN.md`。
+//! 设计概览参见 `AGENTS.md`。
 
 pub mod adapter;
 pub mod chat_pipeline;
