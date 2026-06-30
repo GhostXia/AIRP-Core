@@ -20,6 +20,7 @@
 //! 设计概览参见 `AGENTS.md`。
 
 pub mod adapter;
+pub mod agent;
 pub mod chat_pipeline;
 pub mod chat_store;
 pub mod config;

@@ -230,6 +230,38 @@ pub(super) async fn chat_completion(
     Ok(Sse::new(chat_pipeline::build_sse_stream(pipeline)))
 }
 
+/// M_AGENT-1: `POST /v1/agent/run` — 多步 loop 入口（SSE）。
+///
+/// 计划书 §4.3：`/v1/chat/completions` ≡ `max_steps=1` 的 `/v1/agent/run`。
+/// 老客户端继续打 `/v1/chat/completions`（单回合）；要 agentic 的显式打此端点。
+///
+/// 复用 `AgentLoop::run`（协调器）；quota 检查与 chat_completion 同路径。
+pub(super) async fn agent_run(
+    axum::extract::State(state): axum::extract::State<Arc<DaemonState>>,
+    Json(payload): Json<crate::agent::AgentRunRequest>,
+) -> Result<
+    Sse<impl futures_util::Stream<Item = Result<axum::response::sse::Event, Infallible>>>,
+    AirpError,
+> {
+    // DX-3: quota check（与 chat_completion 同路径）
+    let (quota_config, effective_root) = {
+        let cfg = state.config.read().unwrap_or_else(|e| e.into_inner());
+        let quota = cfg.quota.clone();
+        let root = crate::data_dir::resolve_effective_root(
+            &state.data_root,
+            payload.base.user_id.as_deref(),
+        )?;
+        (quota, root)
+    };
+    crate::quota::check_and_increment(&effective_root, &quota_config)?;
+
+    let cancel = tokio_util::sync::CancellationToken::new();
+    // 客户端断连 → drop SSE 流 → 我们不显式取消（M_AGENT-1 骨架）；
+    // M_AGENT-5 会接 SSE 连接生命周期到 cancel token。
+    let looper = crate::agent::AgentLoop::new(state);
+    Ok(Sse::new(looper.run(payload, cancel)))
+}
+
 // ── Character card import ─────────────────────────────────────────────────────
 
 /// M_MCP MCP-2: 角色卡导入的内部实现（pub(crate) 供 daemon HTTP handler 与 MCP tool 共享）。

@@ -25,12 +25,12 @@ use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::cors::{Any, CorsLayer};
 
 use handlers::{
-    add_scene_character_endpoint, chat_completion, create_scene_endpoint, create_session_endpoint,
-    get_character_avatar, get_character_state, get_character_state_history,
-    get_character_state_schema, get_chat_history, get_preset_endpoint, get_scene_endpoint,
-    get_settings, import_character, list_characters, list_models, list_presets_endpoint,
-    list_scenes_endpoint, list_sessions_endpoint, reextract_character_assets, regen_chat,
-    rollback_chat, update_settings,
+    add_scene_character_endpoint, agent_run, chat_completion, create_scene_endpoint,
+    create_session_endpoint, get_character_avatar, get_character_state,
+    get_character_state_history, get_character_state_schema, get_chat_history,
+    get_preset_endpoint, get_scene_endpoint, get_settings, import_character, list_characters,
+    list_models, list_presets_endpoint, list_scenes_endpoint, list_sessions_endpoint,
+    reextract_character_assets, regen_chat, rollback_chat, update_settings,
 };
 
 /// daemon 进程全局共享状态。通过 axum `State<Arc<DaemonState>>` 注入到所有 handler。
@@ -190,6 +190,7 @@ pub fn create_router(state: Arc<DaemonState>) -> Router {
 
     let v1_routes = Router::new()
         .route("/v1/chat/completions", post(chat_completion))
+        .route("/v1/agent/run", post(agent_run))
         .route("/v1/chat/history", post(get_chat_history))
         .route("/v1/chat/rollback", post(rollback_chat))
         .route("/v1/chat/regen", post(regen_chat))
