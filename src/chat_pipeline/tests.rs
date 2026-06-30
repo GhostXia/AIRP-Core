@@ -462,7 +462,6 @@ mod tests_mls9 {
             "state hp_max=120 should take priority over schema max=100"
         );
     }
-
 }
 
 // ── MS-6 tests: scene pipeline branch ────────────────────────────────────────
